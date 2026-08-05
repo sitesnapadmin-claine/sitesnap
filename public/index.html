@@ -299,6 +299,16 @@
   .dns-copy:hover { background:#D97706; }
   .dns-copy.copied { background:#10B981; }
   .dns-note { background:#FEF3C7; border-radius:7px; padding:10px 12px; font-size:12px; color:#78350F; margin-top:12px; line-height:1.55; }
+  .dns-record { background:#fff; border:1px solid #FDE68A; border-radius:8px; margin-top:8px; overflow:hidden; }
+  .dns-record-head { display:flex; align-items:center; justify-content:space-between; gap:8px; background:#FEF3C7; padding:6px 10px; font-size:11px; font-weight:700; color:#92400E; }
+  .dns-record .dns-table { border:none; border-radius:0; margin-top:0; }
+  .dns-field { font-weight:700; color:#451A03; width:36%; }
+  .dns-alt { font-size:10px; color:#B45309; font-weight:400; }
+  .dns-pill { font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; white-space:nowrap; }
+  .dns-pill-ok { background:#D1FAE5; color:#065F46; }
+  .dns-pill-bad { background:#FEE2E2; color:#991B1B; }
+  .dns-pill-wait { background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; }
+  .dns-multi-note { background:#FEF3C7; border-radius:6px; padding:8px 10px; font-size:12px; color:#78350F; margin-top:8px; }
   .dns-links { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .dns-link { font-size:11px; color:#92400E; background:white; border:1px solid #FDE68A; border-radius:20px; padding:4px 11px; text-decoration:none; font-weight:600; }
   .dns-link:hover { background:#FEF3C7; }
@@ -1562,31 +1572,7 @@ function renderDomainSection(plan, uuid) {
             <div class="dns-step-num">3</div>
             <div class="dns-step-body">
               <strong>Copy these three values into the form:</strong>
-              <table class="dns-table">
-                <thead>
-                  <tr><th>Field</th><th>What to enter</th></tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>Type</strong></td>
-                    <td><span class="dns-val" id="dns-type">CNAME</span></td>
-                  </tr>
-                  <tr>
-                    <td><strong>Name</strong><br><span style="font-size:10px;color:#B45309;">(or "Host")</span></td>
-                    <td>
-                      <span class="dns-val" id="dns-host">www</span>
-                      <button class="dns-copy" onclick="copyDnsValue('dns-host', this)">Copy</button>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td><strong>Value</strong><br><span style="font-size:10px;color:#B45309;">(or "Points to"/"Target")</span></td>
-                    <td>
-                      <span class="dns-val" id="dns-target">—</span>
-                      <button class="dns-copy" onclick="copyDnsValue('dns-target', this)">Copy</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div id="dns-records-wrap"></div>
               <div style="font-size:11px;color:#B45309;margin-top:6px;">
                 Leave TTL on its default (or "Automatic"). Then hit Save.
               </div>
@@ -1665,13 +1651,7 @@ async function saveCustomDomain(uuid) {
     resultEl.textContent = `✓ Saved — now finish the DNS setup below`;
     resultEl.className = 'domain-result success';
 
-    // Fill the step-by-step guide with this domain's exact values
-    const typeEl = document.getElementById('dns-type');
-    const hostEl = document.getElementById('dns-host');
-    const targetEl = document.getElementById('dns-target');
-    if (typeEl) typeEl.textContent = data.recordType || 'CNAME';
-    if (hostEl) hostEl.textContent = data.host || 'www';
-    if (targetEl) targetEl.textContent = data.dnsTarget || '';
+    renderDnsRecords(data.records || []);
 
     // Root domains need an extra warning — CNAME often isn't allowed on bare domains
     const rootNote = document.getElementById('dns-root-note');
@@ -1689,6 +1669,62 @@ async function saveCustomDomain(uuid) {
     resultEl.textContent = '✗ ' + e.message;
     resultEl.className = 'domain-result error';
   }
+}
+
+function renderDnsRecords(records) {
+  const wrap = document.getElementById('dns-records-wrap');
+  if (!wrap) return;
+  if (!records.length) { wrap.innerHTML = ''; return; }
+
+  const statusPill = (s) => {
+    if (s === 'VALID') return '<span class="dns-pill dns-pill-ok">✓ Done</span>';
+    if (s === 'INVALID') return '<span class="dns-pill dns-pill-bad">✗ Wrong value</span>';
+    return '<span class="dns-pill dns-pill-wait">Waiting</span>';
+  };
+
+  wrap.innerHTML = records.map((r, i) => {
+    const label = r.purpose === 'verification'
+      ? 'Record ' + (i + 1) + ' — proves you own the domain'
+      : 'Record ' + (i + 1) + ' — sends visitors to your site';
+    return `
+      <div class="dns-record">
+        <div class="dns-record-head">
+          <span>${label}</span>${statusPill(r.status)}
+        </div>
+        <table class="dns-table">
+          <tr>
+            <td class="dns-field">Type</td>
+            <td><span class="dns-val">${escapeHtml(r.type)}</span></td>
+          </tr>
+          <tr>
+            <td class="dns-field">Name<div class="dns-alt">(or "Host")</div></td>
+            <td>
+              <span class="dns-val" id="dnsrec-host-${i}">${escapeHtml(r.host)}</span>
+              <button class="dns-copy" onclick="copyDnsValue('dnsrec-host-${i}', this)">Copy</button>
+            </td>
+          </tr>
+          <tr>
+            <td class="dns-field">Value<div class="dns-alt">(or "Points to")</div></td>
+            <td>
+              <span class="dns-val" id="dnsrec-val-${i}">${escapeHtml(r.value)}</span>
+              <button class="dns-copy" onclick="copyDnsValue('dnsrec-val-${i}', this)">Copy</button>
+            </td>
+          </tr>
+        </table>
+      </div>`;
+  }).join('');
+
+  if (records.length > 1) {
+    wrap.insertAdjacentHTML('afterbegin',
+      `<div class="dns-multi-note">You'll add <strong>${records.length} separate records</strong>. Both are required — the site won't go live with only one.</div>`
+    );
+  }
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])
+  );
 }
 
 function copyDnsValue(elId, btn) {
@@ -1712,10 +1748,33 @@ async function checkDns(uuid) {
       headers: { Authorization: `Bearer ${authToken}` }
     });
     const data = await res.json();
+
+    // Railway-backed status: refresh the per-record badges so the customer can
+    // see exactly which of the records they still need to fix
+    if (data.source === 'railway') {
+      resultEl.style.color = 'var(--text)';
+      renderDnsRecords(data.records || []);
+      if (data.live) {
+        resultEl.innerHTML = `<strong style="color:#059669;">✓ You're live!</strong><br>
+          Your site is now available at <strong>${escapeHtml(domain)}</strong>.`;
+      } else if (data.pointed) {
+        resultEl.innerHTML = `<strong style="color:#059669;">✓ Records confirmed</strong><br>
+          Both records look right. We're issuing your security certificate now —
+          this usually takes a few minutes, but can take up to an hour.`;
+      } else {
+        const pending = (data.records || []).filter(r => r.status !== 'VALID').length;
+        resultEl.innerHTML = `<strong style="color:#D97706;">⏳ Still waiting</strong><br>
+          ${pending} of ${(data.records || []).length} records ${pending === 1 ? 'is' : 'are'} not
+          showing up yet. Check the badges above — anything marked "Waiting" either hasn't
+          spread across the internet yet, or wasn't saved at your provider.`;
+      }
+      return;
+    }
+
     if (data.pointed) {
       resultEl.innerHTML = `<strong style="color:#059669;">✓ It's working!</strong><br>
         Your domain is connected. We're setting up your security certificate now —
-        your site will be live at <strong>${domain}</strong> within a few minutes.`;
+        your site will be live at <strong>${escapeHtml(domain)}</strong> within a few minutes.`;
       resultEl.style.color = 'var(--success)';
     } else if (data.cnames && data.cnames.length) {
       resultEl.innerHTML = `<strong style="color:#D97706;">⚠ Almost there</strong><br>
