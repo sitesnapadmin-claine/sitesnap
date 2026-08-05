@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SiteSnap — Caddyfile (production)
+# Replace "sitesnap.app" with your actual domain everywhere below.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Global settings
+{
+  # On-demand TLS: Caddy asks our app before issuing a cert for any unknown host
+  on_demand_tls {
+    ask http://localhost:3000/api/domain/verify
+    interval 2m
+    burst 5
+  }
+}
+
+# Main app domain + wildcard subdomains (*.sitesnap.app)
+sitesnap.app, *.sitesnap.app {
+  tls {
+    # For wildcard you need a DNS challenge — set your DNS provider below.
+    # See: https://caddyserver.com/docs/automatic-https#wildcard-certificates
+    # Example for Cloudflare:
+    #   dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+  }
+  reverse_proxy localhost:3000
+}
+
+# Custom domains — any host not matched above
+# On-demand TLS kicks in automatically for each new custom domain.
+https:// {
+  tls {
+    on_demand
+  }
+  reverse_proxy localhost:3000
+}

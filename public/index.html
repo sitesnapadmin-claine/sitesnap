@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SiteSnap — Build Your Website in Minutes</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --brand: #6C47FF; --brand-light: #EEE9FF; --brand-dark: #4A2ECC;
+    --text: #1A1A2E; --text-muted: #6B7280; --border: #E5E7EB;
+    --surface: #F9FAFB; --white: #ffffff; --success: #10B981;
+    --danger: #EF4444; --radius: 14px;
+    --shadow: 0 4px 24px rgba(108,71,255,0.10);
+    --shadow-lg: 0 12px 48px rgba(108,71,255,0.15);
+  }
+  body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg,#F0EBFF 0%,#EEF2FF 50%,#F0FDF4 100%); min-height: 100vh; color: var(--text); }
+
+  /* ── TOP NAV ─────────────────────────────────── */
+  .topnav { display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(229,231,235,0.8); position: sticky; top: 0; z-index: 200; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 36px; height: 36px; background: var(--brand); border-radius: 9px; display: flex; align-items: center; justify-content: center; }
+  .logo-icon svg { width: 20px; height: 20px; fill: white; }
+  .logo-name { font-size: 20px; font-weight: 800; color: var(--text); letter-spacing: -0.5px; }
+  .logo-name span { color: var(--brand); }
+  .auth-area { display: flex; align-items: center; gap: 12px; }
+  .user-pill { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: var(--brand-light); border-radius: 20px; font-size: 13px; color: var(--brand); font-weight: 600; }
+  .btn-logout { font-size: 13px; color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 4px 8px; transition: color 0.2s; }
+  .btn-logout:hover { color: var(--danger); }
+  .btn-login-top { padding: 8px 20px; border-radius: 8px; border: 1.5px solid var(--border); background: white; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; transition: all 0.2s; }
+  .btn-login-top:hover { border-color: var(--brand); color: var(--brand); }
+  .btn-signup-top { padding: 8px 20px; border-radius: 8px; border: none; background: var(--brand); font-size: 14px; font-weight: 600; color: white; cursor: pointer; transition: all 0.2s; }
+  .btn-signup-top:hover { background: var(--brand-dark); }
+
+  /* ── LAYOUT ─────────────────────────────────── */
+  .app { max-width: 800px; margin: 0 auto; padding: 36px 20px 80px; }
+
+  /* ── PROGRESS ─────────────────────────────────── */
+  .progress-wrap { margin-bottom: 36px; }
+  .progress-steps { display: flex; align-items: center; justify-content: center; }
+  .step-dot { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; flex: 1; max-width: 110px; }
+  .step-dot:not(:last-child)::after { content:''; position:absolute; top:18px; left:calc(50% + 18px); width:calc(100% - 36px); height:2px; background:var(--border); border-radius:2px; transition:background 0.4s; }
+  .step-dot.done:not(:last-child)::after { background: var(--brand); }
+  .dot-circle { width:36px; height:36px; border-radius:50%; border:2px solid var(--border); background:var(--white); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; color:var(--text-muted); transition:all 0.3s; flex-shrink:0; }
+  .step-dot.active .dot-circle { border-color:var(--brand); background:var(--brand); color:white; box-shadow:0 0 0 4px var(--brand-light); }
+  .step-dot.done .dot-circle { border-color:var(--brand); background:var(--brand); color:white; }
+  .dot-label { font-size:11px; color:var(--text-muted); font-weight:500; white-space:nowrap; }
+  .step-dot.active .dot-label { color:var(--brand); font-weight:600; }
+
+  /* ── CARD ─────────────────────────────────── */
+  .card { background:var(--white); border-radius:24px; padding:48px; box-shadow:var(--shadow-lg); border:1px solid rgba(255,255,255,0.8); }
+  @media(max-width:600px){.card{padding:28px 20px;}}
+  .step { display:none; }
+  .step.active { display:block; animation:fadeSlide 0.35s ease; }
+  @keyframes fadeSlide { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ── HEADINGS ─────────────────────────────────── */
+  .step-badge { display:inline-block; background:var(--brand-light); color:var(--brand); font-size:12px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; padding:4px 12px; border-radius:20px; margin-bottom:14px; }
+  .step h2 { font-size:26px; font-weight:800; color:var(--text); margin-bottom:8px; line-height:1.2; }
+  .step p.sub { font-size:15px; color:var(--text-muted); margin-bottom:32px; line-height:1.5; }
+
+  /* ── FORM ─────────────────────────────────── */
+  .field { margin-bottom:22px; }
+  label { display:block; font-size:13px; font-weight:600; color:var(--text); margin-bottom:6px; }
+  label .hint { font-weight:400; color:var(--text-muted); font-size:12px; margin-left:4px; }
+  input[type="text"],input[type="email"],input[type="password"],textarea,select { width:100%; padding:14px 16px; border:1.5px solid var(--border); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:15px; color:var(--text); background:var(--white); transition:border 0.2s,box-shadow 0.2s; outline:none; appearance:none; }
+  input:focus,textarea:focus,select:focus { border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-light); }
+  textarea { resize:vertical; min-height:90px; line-height:1.5; }
+  .field-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media(max-width:520px){.field-row{grid-template-columns:1fr;}}
+  .error-msg { font-size:13px; color:var(--danger); margin-top:6px; display:none; }
+  .error-msg.show { display:block; }
+
+  /* ── COLOR ─────────────────────────────────── */
+  .color-pair { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .color-field { display:flex; flex-direction:column; gap:6px; }
+  .color-preview-row { display:flex; align-items:center; gap:10px; }
+  input[type="color"] { width:48px; height:48px; border:2px solid var(--border); border-radius:10px; cursor:pointer; padding:2px; background:white; flex-shrink:0; }
+  .color-hex { flex:1; padding:12px 14px; border:1.5px solid var(--border); border-radius:var(--radius); font-family:monospace; font-size:14px; color:var(--text); }
+  .color-hex:focus { border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-light); outline:none; }
+
+  /* ── UPLOAD ZONES ─────────────────────────────── */
+  .uploads-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:4px; }
+  @media(max-width:560px){.uploads-grid{grid-template-columns:1fr;}}
+  .upload-zone { border:2px dashed var(--border); border-radius:var(--radius); padding:20px 12px; text-align:center; cursor:pointer; transition:all 0.2s; background:var(--surface); position:relative; min-height:130px; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .upload-zone:hover { border-color:var(--brand); background:var(--brand-light); }
+  .upload-zone.has-file { border-color:var(--success); background:#F0FDF4; }
+  .upload-zone.uploading { border-color:var(--brand); background:var(--brand-light); pointer-events:none; }
+  .upload-zone input[type="file"] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+  .upload-icon { font-size:26px; margin-bottom:6px; }
+  .upload-label { font-size:13px; font-weight:700; color:var(--text); margin-bottom:2px; }
+  .upload-sub { font-size:11px; color:var(--text-muted); }
+  .upload-preview-img { max-width:100%; max-height:70px; object-fit:contain; border-radius:6px; margin-bottom:4px; }
+  .upload-file-name { font-size:11px; color:var(--success); font-weight:600; margin-top:4px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .upload-spinner { width:20px; height:20px; border:2px solid var(--brand-light); border-top-color:var(--brand); border-radius:50%; animation:spin 0.7s linear infinite; margin:0 auto 6px; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .upload-remove { position:absolute; top:6px; right:6px; width:20px; height:20px; background:var(--danger); color:white; border-radius:50%; font-size:12px; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:10; border:none; font-weight:700; opacity:0; transition:opacity 0.2s; }
+  .upload-zone.has-file:hover .upload-remove { opacity:1; }
+
+  /* ── FONT/STYLE PICKERS ─────────────────────────── */
+  .radio-group { display:flex; gap:10px; flex-wrap:wrap; }
+  .radio-card { flex:1; min-width:90px; border:2px solid var(--border); border-radius:var(--radius); padding:12px 10px; text-align:center; cursor:pointer; transition:all 0.2s; }
+  .radio-card:hover { border-color:var(--brand); }
+  .radio-card.selected { border-color:var(--brand); background:var(--brand-light); }
+  .radio-card input { display:none; }
+  .radio-card-name { font-size:14px; font-weight:700; color:var(--text); margin-bottom:2px; }
+  .radio-card-ex { font-size:11px; color:var(--text-muted); }
+
+  .styles-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-top:8px; }
+  @media(max-width:520px){.styles-grid{grid-template-columns:1fr;}}
+  .style-card { border:2px solid var(--border); border-radius:var(--radius); overflow:hidden; cursor:pointer; transition:all 0.2s; position:relative; }
+  .style-card:hover { border-color:var(--brand); box-shadow:var(--shadow); transform:translateY(-2px); }
+  .style-card.selected { border-color:var(--brand); box-shadow:0 0 0 2px var(--brand); }
+  .style-card.selected::after { content:'✓'; position:absolute; top:8px; right:8px; width:24px; height:24px; background:var(--brand); color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; }
+  .style-preview { height:90px; overflow:hidden; }
+  .style-info { padding:10px 12px; background:white; }
+  .style-name { font-size:13px; font-weight:700; color:var(--text); margin-bottom:2px; }
+  .style-desc { font-size:11px; color:var(--text-muted); line-height:1.3; }
+
+  /* Style mini previews */
+  .sp { display:flex; flex-direction:column; padding:10px 12px; gap:5px; height:100%; position:relative; }
+  .sp .snav { display:flex; gap:5px; align-items:center; }
+  .sp .snd { height:3px; border-radius:2px; width:22px; }
+  .sp .sh1 { font-size:12px; font-weight:700; }
+  .sp .ssub { height:3px; border-radius:2px; width:75%; }
+  .sp .sbtn { height:13px; border-radius:4px; width:46px; margin-top:2px; }
+  .sp-la{background:#FAF7F2;}.sp-la .snd{background:#D4B8A0;}.sp-la .sh1{color:#7B5E45;font-family:'Playfair Display',serif;}.sp-la .ssub{background:#E8D5C4;}.sp-la .sbtn{background:#C4966A;}
+  .sp-bm{background:#0D0D0D;}.sp-bm .snd{background:#333;}.sp-bm .sh1{color:#fff;}.sp-bm .ssub{background:#2A2A2A;}.sp-bm .sbtn{background:#FF3B5C;}
+  .sp-ea{background:#F4F1EC;}.sp-ea .snd{background:#8B7355;}.sp-ea .sh1{color:#3D2B1F;font-family:'Playfair Display',serif;}.sp-ea .ssub{background:#C4B5A5;}.sp-ea .sbtn{background:#6B5544;border-radius:20px;}
+  .sp-lx{background:#0A0A0A;}.sp-lx .snd{background:#C9A84C;height:2px;}.sp-lx .sh1{color:#C9A84C;font-size:11px;letter-spacing:1px;text-transform:uppercase;}.sp-lx .ssub{background:#1C1C1C;}.sp-lx .sbtn{background:transparent;border:1px solid #C9A84C;border-radius:2px;}
+  .sp-pl{background:#FFF8F0;}.sp-pl .snd{background:#FFB347;height:4px;}.sp-pl .sh1{color:#FF6B6B;font-weight:800;}.sp-pl .ssub{background:#FFE0B2;}.sp-pl .sbtn{background:#FF6B6B;border-radius:20px;}
+  .sp-pr{background:#F0F4FA;}.sp-pr .snav{background:#1E3A5F;padding:3px 5px;border-radius:3px;}.sp-pr .snd{background:rgba(255,255,255,0.4);}.sp-pr .sh1{color:#1E3A5F;font-size:11px;}.sp-pr .ssub{background:#CBD5E1;}.sp-pr .sbtn{background:#1E3A5F;}
+
+  /* ── NAVIGATION BUTTONS ─────────────────────────── */
+  .nav-buttons { display:flex; justify-content:space-between; align-items:center; margin-top:36px; gap:12px; }
+  .btn-back { padding:14px 24px; border-radius:var(--radius); border:1.5px solid var(--border); background:white; font-size:15px; font-weight:600; color:var(--text-muted); cursor:pointer; transition:all 0.2s; }
+  .btn-back:hover { border-color:var(--text-muted); color:var(--text); }
+  .btn-next { padding:14px 32px; border-radius:var(--radius); border:none; background:var(--brand); color:white; font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:8px; flex:1; max-width:240px; justify-content:center; }
+  .btn-next:hover { background:var(--brand-dark); transform:translateY(-1px); box-shadow:var(--shadow); }
+  .btn-next:disabled { opacity:0.6; pointer-events:none; }
+
+  /* ── WELCOME ─────────────────────────────────── */
+  #step-welcome { text-align:center; }
+  #step-welcome h1 { font-size:40px; font-weight:800; line-height:1.1; margin-bottom:16px; }
+  #step-welcome h1 span { color:var(--brand); }
+  #step-welcome .tagline { font-size:17px; color:var(--text-muted); max-width:420px; margin:0 auto 36px; line-height:1.5; }
+  .welcome-features { display:flex; gap:20px; justify-content:center; margin-bottom:36px; flex-wrap:wrap; }
+  .wf { display:flex; align-items:center; gap:6px; font-size:14px; color:var(--text-muted); font-weight:500; }
+  .wf-dot { width:7px; height:7px; border-radius:50%; background:var(--brand); }
+  .btn-start { display:inline-flex; align-items:center; gap:10px; padding:16px 36px; background:var(--brand); color:white; border:none; border-radius:var(--radius); font-size:16px; font-weight:700; cursor:pointer; transition:all 0.2s; }
+  .btn-start:hover { background:var(--brand-dark); transform:translateY(-2px); box-shadow:0 8px 24px rgba(108,71,255,0.3); }
+
+  /* ── GENERATING ─────────────────────────────────── */
+  #step-generating { text-align:center; padding:20px 0; }
+  .spinner-ring { width:72px; height:72px; border-radius:50%; border:4px solid var(--brand-light); border-top-color:var(--brand); animation:spin 0.8s linear infinite; margin:0 auto 24px; }
+  .gen-steps { text-align:left; max-width:320px; margin:28px auto 0; display:flex; flex-direction:column; gap:12px; }
+  .gen-step { display:flex; align-items:center; gap:12px; font-size:14px; color:var(--text-muted); transition:all 0.4s; }
+  .gen-step.done { color:var(--success); }
+  .gen-step.active { color:var(--text); font-weight:600; }
+  .gen-dot { width:20px; height:20px; border-radius:50%; background:var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:11px; transition:all 0.4s; }
+  .gen-step.done .gen-dot { background:var(--success); color:white; }
+  .gen-step.active .gen-dot { background:var(--brand); animation:pulse 1s ease infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(108,71,255,0.4)}50%{box-shadow:0 0 0 6px rgba(108,71,255,0)} }
+
+  /* ── PREVIEW ─────────────────────────────────── */
+  #step-preview { padding:0; overflow:hidden; border-radius:24px; }
+  .preview-toolbar { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid var(--border); background:white; flex-wrap:wrap; gap:10px; }
+  .preview-left { display:flex; align-items:center; gap:12px; }
+  .preview-info { font-size:14px; font-weight:600; color:var(--text); }
+  .preview-info span { color:var(--text-muted); font-weight:400; }
+  .preview-actions { display:flex; align-items:center; gap:10px; }
+  .btn-share { padding:9px 20px; border-radius:8px; border:none; background:var(--brand); color:white; font-size:13px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.2s; }
+  .btn-share:hover { background:var(--brand-dark); }
+  .btn-restart { padding:9px 18px; border-radius:8px; border:1.5px solid var(--border); background:white; font-size:13px; font-weight:600; cursor:pointer; color:var(--text-muted); transition:all 0.2s; }
+  .btn-restart:hover { border-color:var(--brand); color:var(--brand); }
+  iframe#preview-frame { width:100%; border:none; display:block; min-height:600px; }
+
+  /* ── SHARE LINK BOX ─────────────────────────── */
+  .share-box { display:none; padding:16px 20px; background:linear-gradient(135deg,#F0EBFF,#EEF2FF); border-bottom:1px solid var(--brand-light); }
+  .share-box.show { display:block; animation:fadeSlide 0.3s ease; }
+  .share-label { font-size:12px; font-weight:700; color:var(--brand); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px; }
+  .share-row { display:flex; gap:8px; align-items:center; }
+  .share-url { flex:1; padding:10px 14px; border:1.5px solid var(--brand-light); border-radius:8px; background:white; font-size:13px; color:var(--text); font-family:monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .btn-copy { padding:10px 18px; border-radius:8px; border:none; background:var(--brand); color:white; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; transition:all 0.2s; }
+  .btn-copy.copied { background:var(--success); }
+  .btn-open { padding:10px 16px; border-radius:8px; border:1.5px solid var(--border); background:white; font-size:13px; font-weight:600; cursor:pointer; color:var(--text-muted); transition:all 0.2s; }
+  .btn-open:hover { border-color:var(--brand); color:var(--brand); }
+
+  /* ── AUTH MODAL ─────────────────────────────────── */
+  .modal-overlay { position:fixed; inset:0; background:rgba(10,10,20,0.6); backdrop-filter:blur(4px); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay.show { display:flex; animation:fadeIn 0.2s ease; }
+  @keyframes fadeIn { from{opacity:0}to{opacity:1} }
+  .modal { background:white; border-radius:20px; padding:40px; width:100%; max-width:420px; box-shadow:0 24px 64px rgba(0,0,0,0.2); position:relative; animation:slideUp 0.3s ease; }
+  @keyframes slideUp { from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)} }
+  .modal-close { position:absolute; top:16px; right:16px; width:32px; height:32px; border-radius:50%; border:1.5px solid var(--border); background:white; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; color:var(--text-muted); transition:all 0.2s; }
+  .modal-close:hover { background:var(--surface); }
+  .modal h3 { font-size:22px; font-weight:800; margin-bottom:6px; }
+  .modal p.modal-sub { font-size:14px; color:var(--text-muted); margin-bottom:28px; line-height:1.4; }
+  .modal .field { margin-bottom:16px; }
+  .modal label { font-size:13px; }
+  .btn-auth { width:100%; padding:14px; border-radius:var(--radius); border:none; background:var(--brand); color:white; font-size:15px; font-weight:700; cursor:pointer; transition:all 0.2s; margin-top:4px; }
+  .btn-auth:hover { background:var(--brand-dark); }
+  .btn-auth:disabled { opacity:0.6; pointer-events:none; }
+  .auth-switch { text-align:center; margin-top:20px; font-size:14px; color:var(--text-muted); }
+  .auth-switch a { color:var(--brand); font-weight:600; cursor:pointer; }
+  .auth-switch a:hover { text-decoration:underline; }
+  .auth-error { background:#FEF2F2; border:1px solid #FECACA; border-radius:8px; padding:10px 14px; font-size:13px; color:var(--danger); margin-bottom:16px; display:none; }
+  .auth-error.show { display:block; }
+
+  /* ── MY SITES ─────────────────────────────────── */
+  .my-sites-btn { display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:8px; border:1.5px solid var(--border); background:white; font-size:13px; font-weight:600; color:var(--text-muted); cursor:pointer; transition:all 0.2s; }
+  .my-sites-btn:hover { border-color:var(--brand); color:var(--brand); }
+  .sites-drawer { position:fixed; top:0; right:0; bottom:0; width:340px; background:white; box-shadow:-8px 0 40px rgba(0,0,0,0.12); z-index:500; transform:translateX(100%); transition:transform 0.3s ease; overflow-y:auto; }
+  .sites-drawer.open { transform:translateX(0); }
+  .drawer-header { padding:20px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; background:white; }
+  .drawer-header h3 { font-size:16px; font-weight:700; }
+  .drawer-close { background:none; border:none; font-size:20px; cursor:pointer; color:var(--text-muted); }
+  .site-item { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+  .site-item:hover { background:var(--surface); }
+  .site-thumb { width:48px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+  .site-item-info { flex:1; min-width:0; }
+  .site-item-name { font-size:14px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .site-item-meta { font-size:12px; color:var(--text-muted); margin-top:2px; }
+  .site-item-open { padding:6px 14px; border-radius:6px; border:1.5px solid var(--border); background:white; font-size:12px; font-weight:600; cursor:pointer; color:var(--text-muted); transition:all 0.2s; flex-shrink:0; }
+  .site-item-open:hover { border-color:var(--brand); color:var(--brand); }
+  .empty-sites { padding:48px 24px; text-align:center; color:var(--text-muted); font-size:14px; }
+  .plan-badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; margin-left:6px; vertical-align:middle; text-transform:uppercase; letter-spacing:0.6px; }
+  .plan-free { background:#F3F4F6; color:#6B7280; }
+  .plan-starter { background:#FEF9C3; color:#854D0E; }
+  .plan-pro { background:#EDE9FE; color:#5B21B6; }
+
+  /* ── UPGRADE MODAL ────────────────────────────── */
+  .upgrade-modal { max-width:560px; }
+  .upgrade-modal h3 { font-size:24px; margin-bottom:6px; }
+  .plans-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px; }
+  @media(max-width:480px){.plans-grid{grid-template-columns:1fr;}}
+  .plan-card { border:2px solid var(--border); border-radius:16px; padding:24px; cursor:pointer; transition:all 0.2s; position:relative; }
+  .plan-card:hover { border-color:var(--brand); box-shadow:var(--shadow); }
+  .plan-card.recommended { border-color:var(--brand); }
+  .plan-rec-badge { position:absolute; top:-10px; left:50%; transform:translateX(-50%); background:var(--brand); color:white; font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:3px 12px; border-radius:10px; white-space:nowrap; }
+  .plan-card-name { font-size:16px; font-weight:800; color:var(--text); margin-bottom:4px; }
+  .plan-card-price { font-size:26px; font-weight:800; color:var(--brand); margin-bottom:4px; }
+  .plan-card-price span { font-size:13px; font-weight:500; color:var(--text-muted); }
+  .plan-card-features { margin-top:14px; display:flex; flex-direction:column; gap:6px; }
+  .plan-feat { font-size:13px; color:var(--text-muted); display:flex; align-items:center; gap:6px; }
+  .plan-feat::before { content:'✓'; color:var(--success); font-weight:700; flex-shrink:0; }
+  .btn-upgrade { width:100%; padding:12px; border-radius:10px; border:none; background:var(--brand); color:white; font-size:14px; font-weight:700; cursor:pointer; margin-top:16px; transition:all 0.2s; }
+  .btn-upgrade:hover { background:var(--brand-dark); }
+  .btn-upgrade.loading { opacity:0.7; pointer-events:none; }
+  .upgrade-skip { text-align:center; margin-top:20px; font-size:13px; color:var(--text-muted); }
+  .upgrade-skip a { color:var(--brand); cursor:pointer; font-weight:600; }
+
+  /* ── DOMAIN SETUP (in share box) ────────────────── */
+  .domain-section { margin-top:16px; padding-top:16px; border-top:1px solid rgba(108,71,255,0.15); }
+  .domain-section-title { font-size:12px; font-weight:700; color:var(--brand); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px; }
+  .domain-row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .domain-input-wrap { display:flex; align-items:center; flex:1; border:1.5px solid var(--brand-light); border-radius:8px; background:white; overflow:hidden; }
+  .domain-prefix { padding:10px 10px 10px 12px; font-size:13px; color:var(--text-muted); white-space:nowrap; background:#F9FAFB; border-right:1px solid var(--border); }
+  .domain-suffix { padding:10px 12px 10px 10px; font-size:13px; color:var(--text-muted); white-space:nowrap; background:#F9FAFB; border-left:1px solid var(--border); }
+  .domain-text-input { border:none; outline:none; padding:10px 8px; font-size:13px; flex:1; min-width:60px; font-family:'Inter',sans-serif; }
+  .btn-domain-save { padding:10px 16px; border-radius:8px; border:none; background:var(--brand); color:white; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; transition:all 0.2s; flex-shrink:0; }
+  .btn-domain-save:hover { background:var(--brand-dark); }
+  .btn-domain-save:disabled { opacity:0.5; pointer-events:none; }
+  .domain-result { font-size:12px; margin-top:4px; }
+  .domain-result.success { color:var(--success); }
+  .domain-result.error { color:var(--danger); }
+  .domain-lock { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#F9FAFB; border-radius:8px; border:1.5px dashed var(--border); font-size:13px; color:var(--text-muted); cursor:pointer; transition:all 0.2s; }
+  .domain-lock:hover { border-color:var(--brand); color:var(--brand); }
+  .dns-instructions { font-size:12px; color:var(--text-muted); background:#F9FAFB; border-radius:8px; padding:10px 12px; margin-top:8px; line-height:1.6; display:none; }
+  .dns-instructions.show { display:block; }
+  .dns-code { font-family:monospace; background:white; padding:2px 6px; border-radius:4px; border:1px solid var(--border); font-size:11px; }
+</style>
+</head>
+<body>
+
+<!-- TOP NAV -->
+<nav class="topnav">
+  <div class="logo">
+    <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm13 2a3 3 0 110 6 3 3 0 010-6z"/></svg></div>
+    <span class="logo-name">Site<span>Snap</span></span>
+  </div>
+  <div class="auth-area" id="auth-area">
+    <!-- Populated by JS -->
+  </div>
+</nav>
+
+<!-- MAIN APP -->
+<div class="app">
+  <!-- PROGRESS -->
+  <div class="progress-wrap" id="progress-wrap" style="display:none;">
+    <div class="progress-steps" id="progress-steps"></div>
+  </div>
+
+  <!-- CARD -->
+  <div class="card" id="main-card">
+
+    <!-- WELCOME -->
+    <div id="step-welcome" class="step active">
+      <h1>Your website,<br>done in <span>minutes</span>.</h1>
+      <p class="tagline">No coding, no design skills needed. Just answer a few questions — we'll handle the rest.</p>
+      <div class="welcome-features">
+        <div class="wf"><div class="wf-dot"></div> Upload your logo &amp; photos</div>
+        <div class="wf"><div class="wf-dot"></div> Choose your style</div>
+        <div class="wf"><div class="wf-dot"></div> Get a shareable link</div>
+        <div class="wf"><div class="wf-dot"></div> Free to start</div>
+      </div>
+      <button class="btn-start" onclick="startWizard()">Get Started →</button>
+    </div>
+
+    <!-- STEP 1: Business -->
+    <div id="step-1" class="step">
+      <div class="step-badge">Step 1 of 5</div>
+      <h2>Tell us about your business</h2>
+      <p class="sub">This is what goes on your homepage. Be yourself — you can always edit later.</p>
+      <div class="field">
+        <label>Business / Brand Name <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="biz-name" placeholder="e.g. Bloom Studio" maxlength="60">
+        <div class="error-msg" id="err-biz-name">Please enter your business name.</div>
+      </div>
+      <div class="field">
+        <label>One-line tagline <span class="hint">— What do you do in one sentence?</span></label>
+        <input type="text" id="tagline" placeholder="e.g. Handcrafted candles for modern homes" maxlength="100">
+      </div>
+      <div class="field-row">
+        <div class="field" style="margin-bottom:0">
+          <label>Industry <span style="color:var(--danger)">*</span></label>
+          <select id="industry">
+            <option value="">Select one...</option>
+            <option>Photography</option><option>Beauty &amp; Wellness</option><option>Food &amp; Beverage</option>
+            <option>Fashion &amp; Apparel</option><option>Health &amp; Fitness</option><option>Home &amp; Interior</option>
+            <option>Art &amp; Creative</option><option>Coaching &amp; Consulting</option><option>Real Estate</option>
+            <option>Technology</option><option>Retail / E-commerce</option><option>Non-profit</option><option>Other</option>
+          </select>
+          <div class="error-msg" id="err-industry">Please select your industry.</div>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>City / Region <span class="hint">(optional)</span></label>
+          <input type="text" id="location" placeholder="e.g. Los Angeles, CA">
+        </div>
+      </div>
+      <div class="nav-buttons">
+        <div></div>
+        <button class="btn-next" onclick="goTo(2)">Next →</button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Branding + Images -->
+    <div id="step-2" class="step">
+      <div class="step-badge">Step 2 of 5</div>
+      <h2>Branding &amp; photos</h2>
+      <p class="sub">Upload your images and pick your colors. All fields are optional — we'll use defaults if you skip.</p>
+
+      <!-- Image uploads -->
+      <div class="field">
+        <label>Upload your images</label>
+        <div class="uploads-grid">
+          <!-- Logo -->
+          <div class="upload-zone" id="zone-logo" onclick="triggerUpload('logo')">
+            <input type="file" id="file-logo" accept="image/*" onchange="handleUpload('logo', event)">
+            <button class="upload-remove" onclick="removeUpload('logo', event)">×</button>
+            <div id="state-logo">
+              <div class="upload-icon">🖼️</div>
+              <div class="upload-label">Logo</div>
+              <div class="upload-sub">PNG or SVG works best</div>
+            </div>
+          </div>
+          <!-- Hero image -->
+          <div class="upload-zone" id="zone-hero" onclick="triggerUpload('hero')">
+            <input type="file" id="file-hero" accept="image/*" onchange="handleUpload('hero', event)">
+            <button class="upload-remove" onclick="removeUpload('hero', event)">×</button>
+            <div id="state-hero">
+              <div class="upload-icon">🏔️</div>
+              <div class="upload-label">Hero Photo</div>
+              <div class="upload-sub">Homepage banner image</div>
+            </div>
+          </div>
+          <!-- About image -->
+          <div class="upload-zone" id="zone-about" onclick="triggerUpload('about')">
+            <input type="file" id="file-about" accept="image/*" onchange="handleUpload('about', event)">
+            <button class="upload-remove" onclick="removeUpload('about', event)">×</button>
+            <div id="state-about">
+              <div class="upload-icon">👤</div>
+              <div class="upload-label">About Photo</div>
+              <div class="upload-sub">You or your team</div>
+            </div>
+          </div>
+        </div>
+        <div id="upload-error" class="error-msg"></div>
+      </div>
+
+      <!-- Colors -->
+      <div class="field">
+        <label>Brand Colors</label>
+        <div class="color-pair">
+          <div class="color-field">
+            <label style="font-size:12px;color:var(--text-muted);">Primary Color</label>
+            <div class="color-preview-row">
+              <input type="color" id="color-primary" value="#6C47FF" oninput="syncHex('primary')">
+              <input type="text" class="color-hex" id="hex-primary" value="#6C47FF" maxlength="7" oninput="syncColor('primary')">
+            </div>
+          </div>
+          <div class="color-field">
+            <label style="font-size:12px;color:var(--text-muted);">Accent Color</label>
+            <div class="color-preview-row">
+              <input type="color" id="color-accent" value="#FF6B6B" oninput="syncHex('accent')">
+              <input type="text" class="color-hex" id="hex-accent" value="#FF6B6B" maxlength="7" oninput="syncColor('accent')">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Font -->
+      <div class="field">
+        <label>Font Personality</label>
+        <div class="radio-group">
+          <label class="radio-card selected" onclick="selectFont(this,'modern')"><input type="radio" name="font" value="modern" checked><div class="radio-card-name" style="font-family:'Inter',sans-serif;">Modern</div><div class="radio-card-ex">Clean &amp; minimal</div></label>
+          <label class="radio-card" onclick="selectFont(this,'elegant')"><input type="radio" name="font" value="elegant"><div class="radio-card-name" style="font-family:'Playfair Display',serif;">Elegant</div><div class="radio-card-ex">Classic &amp; refined</div></label>
+          <label class="radio-card" onclick="selectFont(this,'playful')"><input type="radio" name="font" value="playful"><div class="radio-card-name" style="font-family:'Inter',sans-serif;font-weight:900;letter-spacing:-1px;">Playful</div><div class="radio-card-ex">Bold &amp; fun</div></label>
+        </div>
+      </div>
+
+      <div class="nav-buttons">
+        <button class="btn-back" onclick="goTo(1)">← Back</button>
+        <button class="btn-next" onclick="goTo(3)">Next →</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Copy -->
+    <div id="step-3" class="step">
+      <div class="step-badge">Step 3 of 5</div>
+      <h2>Your message</h2>
+      <p class="sub">These answers become the words on your website. Just be honest — no marketing jargon needed.</p>
+      <div class="field">
+        <label>Who is your ideal customer? <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="audience" placeholder="e.g. Busy moms who want to feel pampered at home" maxlength="120">
+        <div class="error-msg" id="err-audience">Please describe your ideal customer.</div>
+      </div>
+      <div class="field">
+        <label>What problem do you solve for them?</label>
+        <textarea id="problem" placeholder="e.g. They want quality self-care products but don't have time to go to a spa..."></textarea>
+      </div>
+      <div class="field">
+        <label>What makes you different? <span class="hint">(your superpower)</span></label>
+        <textarea id="differentiator" placeholder="e.g. All our products are handmade in small batches with organic ingredients..."></textarea>
+      </div>
+      <div class="field">
+        <label>What's the #1 action you want visitors to take?</label>
+        <select id="cta-type">
+          <option value="Book a Call">Book a Call / Consultation</option>
+          <option value="Shop Now">Shop Now</option>
+          <option value="Get a Quote">Get a Quote</option>
+          <option value="Contact Us">Contact Us</option>
+          <option value="Learn More">Learn More</option>
+          <option value="Subscribe">Subscribe / Join the List</option>
+          <option value="Download Free Guide">Download Free Guide</option>
+        </select>
+      </div>
+      <div class="nav-buttons">
+        <button class="btn-back" onclick="goTo(2)">← Back</button>
+        <button class="btn-next" onclick="goTo(4)">Next →</button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Style -->
+    <div id="step-4" class="step">
+      <div class="step-badge">Step 4 of 5</div>
+      <h2>Pick your vibe</h2>
+      <p class="sub">Choose the style that feels most like your brand. Your colors will be applied to the chosen theme.</p>
+      <div class="styles-grid">
+        <div class="style-card" onclick="selectStyle(this,'light-airy')">
+          <div class="style-preview"><div class="sp sp-la"><div class="snav"><div class="snd"></div><div class="snd"></div><div class="snd"></div></div><div class="sh1">Beautiful &amp; Simple</div><div class="ssub"></div><div class="sbtn"></div></div></div>
+          <div class="style-info"><div class="style-name">☁️ Light &amp; Airy</div><div class="style-desc">Soft, bright, open. Wellness, lifestyle, beauty.</div></div>
+        </div>
+        <div class="style-card" onclick="selectStyle(this,'bold-modern')">
+          <div class="style-preview"><div class="sp sp-bm"><div class="snav"><div class="snd"></div><div class="snd"></div><div class="snd"></div></div><div class="sh1">Make an Impact</div><div class="ssub"></div><div class="sbtn"></div></div></div>
+          <div class="style-info"><div class="style-name">⚡ Bold &amp; Modern</div><div class="style-desc">High contrast, strong energy. Tech, fashion, agencies.</div></div>
+        </div>
+        <div class="style-card" onclick="selectStyle(this,'earthy')">
+          <div class="style-preview"><div class="sp sp-ea"><div class="snav"><div class="snd"></div><div class="snd"></div><div class="snd"></div></div><div class="sh1">Rooted in Nature</div><div class="ssub"></div><div class="sbtn"></div></div></div>
+          <div class="style-info"><div class="style-name">🌿 Earthy &amp; Natural</div><div class="style-desc">Warm, organic, grounded. Food, farms, sustainability.</div></div>
+        </div>
+        <div class="style-card" onclick="selectStyle(this,'luxe')">
+          <div class="style-preview"><div class="sp sp-lx"><div class="snav"><div class="snd"></div><div class="snd"></div><div class="snd"></div></div><div class="sh1">Luxury Redefined</div><div class="ssub"></div><div class="sbtn"></div></div></div>
+          <div class="style-info"><div class="style-name">✨ Luxe &amp; Elegant</div><div class="style-desc">Dark, dramatic, sophisticated. Luxury brands, events.</div></div>
+        </div>
+        <div class="style-card" onclick="selectStyle(this,'playful')">
+          <div class="style-preview"><div class="sp sp-pl"><div class="snav"><div class="snd"></div><div class="snd"></div><div class="snd"></div></div><div class="sh1">Let's Have Fun! 🎉</div><div class="ssub"></div><div class="sbtn"></div></div></div>
+          <div class="style-info"><div class="style-name">🎈 Playful &amp; Fun</div><div class="style-desc">Bright, bubbly, joyful. Kids, events, food brands.</div></div>
+        </div>
+        <div class="style-card" onclick="selectStyle(this,'professional')">
+          <div class="style-preview"><div class="sp sp-pr"><div class="snav"><div class="snd"></div><div class="snd"></div><div class="snd"></div></div><div class="sh1">Trusted &amp; Professional</div><div class="ssub"></div><div class="sbtn"></div></div></div>
+          <div class="style-info"><div class="style-name">💼 Clean &amp; Professional</div><div class="style-desc">Structured, trustworthy. Law, finance, consulting.</div></div>
+        </div>
+      </div>
+      <div class="error-msg" id="err-style" style="margin-top:10px;">Please choose a design style to continue.</div>
+      <div class="nav-buttons">
+        <button class="btn-back" onclick="goTo(3)">← Back</button>
+        <button class="btn-next" onclick="goTo(5)">Build My Site 🚀</button>
+      </div>
+    </div>
+
+    <!-- STEP 5: Generating -->
+    <div id="step-generating" class="step" style="text-align:center;padding:20px 0;">
+      <div class="step-badge">Almost there!</div>
+      <h2>Building your website…</h2>
+      <p class="sub">Give us a moment to put everything together.</p>
+      <div class="spinner-ring"></div>
+      <div class="gen-steps">
+        <div class="gen-step active" id="gs-1"><div class="gen-dot">→</div> Applying your branding &amp; colors</div>
+        <div class="gen-step" id="gs-2"><div class="gen-dot">→</div> Writing your homepage copy</div>
+        <div class="gen-step" id="gs-3"><div class="gen-dot">→</div> Styling your layout</div>
+        <div class="gen-step" id="gs-4"><div class="gen-dot">→</div> Adding the finishing touches</div>
+      </div>
+    </div>
+
+    <!-- STEP 6: Preview -->
+    <div id="step-preview" class="step">
+      <div class="preview-toolbar">
+        <div class="preview-left">
+          <div class="preview-info">Your site is ready! <span>Scroll to explore</span></div>
+        </div>
+        <div class="preview-actions">
+          <button class="btn-share" id="btn-share" onclick="saveAndShare()">🔗 Save &amp; Share</button>
+          <button class="btn-restart" onclick="startOver()">Start Over</button>
+        </div>
+      </div>
+      <div class="share-box" id="share-box">
+        <div class="share-label">🎉 Your shareable link is ready!</div>
+        <div class="share-row">
+          <input class="share-url" id="share-url-input" readonly>
+          <button class="btn-copy" id="btn-copy" onclick="copyLink()">Copy</button>
+          <button class="btn-open" onclick="openLink()">Open ↗</button>
+        </div>
+
+        <!-- Domain setup section — shown after save, adapts to plan -->
+        <div class="domain-section" id="domain-section" style="display:none;">
+          <div class="domain-section-title" id="domain-section-title">🌐 Claim your custom address</div>
+          <div id="domain-section-content"></div>
+        </div>
+      </div>
+      <iframe id="preview-frame" scrolling="yes"></iframe>
+    </div>
+
+  </div><!-- /card -->
+</div><!-- /app -->
+
+<!-- UPGRADE MODAL -->
+<div class="modal-overlay" id="upgrade-modal">
+  <div class="modal upgrade-modal">
+    <button class="modal-close" onclick="closeUpgradeModal()">×</button>
+    <h3>🚀 Unlock more with SiteSnap</h3>
+    <p class="modal-sub">Your site is live! Want to remove the SiteSnap badge or add a custom address?</p>
+    <div class="plans-grid">
+      <!-- Starter -->
+      <div class="plan-card">
+        <div class="plan-card-name">Starter</div>
+        <div class="plan-card-price">$29<span> one-time</span></div>
+        <div class="plan-card-features">
+          <div class="plan-feat">No "Built with SiteSnap" badge</div>
+          <div class="plan-feat">yourbrand.sitesnap.app address</div>
+          <div class="plan-feat">All 6 design themes</div>
+          <div class="plan-feat">Unlimited edits</div>
+        </div>
+        <button class="btn-upgrade" onclick="startCheckout('starter')">Get Starter →</button>
+      </div>
+      <!-- Pro -->
+      <div class="plan-card recommended">
+        <div class="plan-rec-badge">Most Popular</div>
+        <div class="plan-card-name">Pro</div>
+        <div class="plan-card-price">$12<span>/month</span></div>
+        <div class="plan-card-features">
+          <div class="plan-feat">Everything in Starter</div>
+          <div class="plan-feat">Your own domain (yourbrand.com)</div>
+          <div class="plan-feat">Automatic SSL certificate</div>
+          <div class="plan-feat">Priority support</div>
+        </div>
+        <button class="btn-upgrade" onclick="startCheckout('pro')">Get Pro →</button>
+      </div>
+    </div>
+    <div class="upgrade-skip">Already paid? <a onclick="closeUpgradeModal()">Close and continue →</a></div>
+  </div>
+</div>
+
+<!-- AUTH MODAL -->
+<div class="modal-overlay" id="auth-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeAuthModal()">×</button>
+    <h3 id="modal-title">Create your account</h3>
+    <p class="modal-sub" id="modal-sub">Save your site and get a shareable link in seconds.</p>
+    <div class="auth-error" id="auth-error"></div>
+    <div class="field">
+      <label>Email address</label>
+      <input type="email" id="auth-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
+    </div>
+    <div class="field">
+      <label>Password <span class="hint">(min 6 characters)</span></label>
+      <input type="password" id="auth-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')submitAuth()">
+    </div>
+    <button class="btn-auth" id="btn-auth-submit" onclick="submitAuth()">Create Account</button>
+    <div class="auth-switch">
+      <span id="auth-switch-text">Already have an account?</span>
+      <a onclick="toggleAuthMode()"> <span id="auth-switch-action">Sign in instead</span></a>
+    </div>
+  </div>
+</div>
+
+<!-- MY SITES DRAWER -->
+<div class="sites-drawer" id="sites-drawer">
+  <div class="drawer-header">
+    <h3>My Websites</h3>
+    <button class="drawer-close" onclick="closeDrawer()">×</button>
+  </div>
+  <div id="sites-list"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════ */
+const state = {
+  bizName:'', tagline:'', industry:'', location:'',
+  logoUrl:null, heroUrl:null, aboutUrl:null,
+  colorPrimary:'#6C47FF', colorAccent:'#FF6B6B',
+  fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call',
+  designStyle:null
+};
+
+let authToken = localStorage.getItem('ss_token') || null;
+let authEmail = localStorage.getItem('ss_email') || null;
+let authPlan = localStorage.getItem('ss_plan') || 'free';
+let authMode = 'register'; // or 'login'
+let pendingSave = false;
+let currentStep = 0;
+let currentSiteUuid = null; // UUID of the most recently saved site
+let editMode = false;       // true when editing an existing site
+const STEP_LABELS = ['Your Business','Branding','Your Message','Choose Vibe','Preview'];
+
+/* ═══════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  renderAuthArea();
+  // Refresh plan from server if logged in (handles return from Stripe)
+  if (authToken) refreshPlan();
+});
+
+/* ═══════════════════════════════════════════════════
+   AUTH AREA
+═══════════════════════════════════════════════════ */
+function planLabel(plan) {
+  if (plan === 'pro') return '<span class="plan-badge plan-pro">Pro</span>';
+  if (plan === 'starter') return '<span class="plan-badge plan-starter">Starter</span>';
+  return '<span class="plan-badge plan-free">Free</span>';
+}
+
+function renderAuthArea() {
+  const area = document.getElementById('auth-area');
+  if (authToken && authEmail) {
+    area.innerHTML = `
+      <button class="my-sites-btn" onclick="openDrawer()">📋 My Sites</button>
+      <div class="user-pill">👤 ${escHtml(authEmail)}${planLabel(authPlan)}</div>
+      ${authPlan !== 'free' ? `<button class="btn-login-top" onclick="openBillingPortal()" style="font-size:12px;">Billing</button>` : `<button class="btn-signup-top" style="font-size:13px;padding:7px 16px;" onclick="openUpgradeModal()">⬆ Upgrade</button>`}
+      <button class="btn-logout" onclick="logout()">Logout</button>`;
+  } else {
+    area.innerHTML = `
+      <button class="btn-login-top" onclick="openAuthModal('login')">Log in</button>
+      <button class="btn-signup-top" onclick="openAuthModal('register')">Sign up free</button>`;
+  }
+}
+
+async function refreshPlan() {
+  try {
+    const res = await fetch('/api/me', { headers:{ Authorization:`Bearer ${authToken}` } });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.plan && data.plan !== authPlan) {
+      authPlan = data.plan;
+      localStorage.setItem('ss_plan', authPlan);
+      renderAuthArea();
+    }
+  } catch(_) {}
+}
+
+function logout() {
+  authToken = null; authEmail = null; authPlan = 'free'; currentSiteUuid = null;
+  localStorage.removeItem('ss_token'); localStorage.removeItem('ss_email'); localStorage.removeItem('ss_plan');
+  renderAuthArea();
+}
+
+/* ═══════════════════════════════════════════════════
+   AUTH MODAL
+═══════════════════════════════════════════════════ */
+function openAuthModal(mode) {
+  authMode = mode || 'register';
+  updateModalUI();
+  document.getElementById('auth-modal').classList.add('show');
+  setTimeout(() => document.getElementById('auth-email').focus(), 100);
+}
+
+function closeAuthModal() {
+  document.getElementById('auth-modal').classList.remove('show');
+  document.getElementById('auth-error').classList.remove('show');
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-password').value = '';
+  pendingSave = false;
+}
+
+function toggleAuthMode() {
+  authMode = authMode === 'register' ? 'login' : 'register';
+  updateModalUI();
+}
+
+function updateModalUI() {
+  const isReg = authMode === 'register';
+  document.getElementById('modal-title').textContent = isReg ? 'Create your account' : 'Welcome back';
+  document.getElementById('modal-sub').textContent = isReg
+    ? 'Save your site and get a shareable link in seconds.'
+    : 'Log in to save and share your site.';
+  document.getElementById('btn-auth-submit').textContent = isReg ? 'Create Account' : 'Log In';
+  document.getElementById('auth-switch-text').textContent = isReg ? 'Already have an account?' : "Don't have an account?";
+  document.getElementById('auth-switch-action').textContent = isReg ? 'Sign in instead' : 'Sign up free';
+  document.getElementById('auth-error').classList.remove('show');
+}
+
+async function submitAuth() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl = document.getElementById('auth-error');
+  const btn = document.getElementById('btn-auth-submit');
+
+  if (!email || !password) { showAuthError('Please fill in all fields.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = authMode === 'register' ? 'Creating account…' : 'Logging in…';
+
+  try {
+    const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) });
+    const data = await res.json();
+
+    if (!res.ok) { showAuthError(data.error || 'Something went wrong. Please try again.'); return; }
+
+    authToken = data.token; authEmail = data.email; authPlan = data.plan || 'free';
+    localStorage.setItem('ss_token', authToken);
+    localStorage.setItem('ss_email', authEmail);
+    localStorage.setItem('ss_plan', authPlan);
+    closeAuthModal();
+    renderAuthArea();
+
+    if (pendingSave) { pendingSave = false; saveAndShare(); }
+  } catch (e) {
+    showAuthError('Network error. Please check your connection.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = authMode === 'register' ? 'Create Account' : 'Log In';
+  }
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+/* ═══════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════ */
+function startWizard() {
+  document.getElementById('progress-wrap').style.display = 'block';
+  buildProgressBar();
+  goTo(1);
+}
+
+function startOver() {
+  // Reset state
+  Object.assign(state, { bizName:'', tagline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', designStyle:null });
+  document.getElementById('share-box').classList.remove('show');
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.getElementById('btn-share').textContent = '🔗 Save & Share';
+  document.getElementById('btn-share').onclick = saveAndShare;
+  editMode = false;
+  currentSiteUuid = null;
+  currentStep = 0;
+  showStep(0);
+}
+
+function buildProgressBar() {
+  const wrap = document.getElementById('progress-steps');
+  wrap.innerHTML = STEP_LABELS.map((label, i) => `
+    <div class="step-dot" id="pdot-${i+1}">
+      <div class="dot-circle">${i+1}</div>
+      <div class="dot-label">${label}</div>
+    </div>`).join('');
+}
+
+function updateProgress(n) {
+  for (let i = 1; i <= 5; i++) {
+    const dot = document.getElementById(`pdot-${i}`);
+    if (!dot) continue;
+    dot.classList.remove('active','done');
+    if (i < n) { dot.classList.add('done'); dot.querySelector('.dot-circle').textContent = '✓'; }
+    else if (i === n) { dot.classList.add('active'); dot.querySelector('.dot-circle').textContent = i; }
+    else { dot.querySelector('.dot-circle').textContent = i; }
+  }
+}
+
+function showStep(n) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  const el = n === 0 ? document.getElementById('step-welcome')
+    : n === 5 ? document.getElementById('step-generating')
+    : n === 6 ? document.getElementById('step-preview')
+    : document.getElementById(`step-${n}`);
+  if (el) el.classList.add('active');
+}
+
+function goTo(n) {
+  if (n > currentStep && !validate(currentStep)) return;
+  collectStep(currentStep);
+  currentStep = n;
+
+  if (n === 0) { document.getElementById('progress-wrap').style.display = 'none'; showStep(0); return; }
+  if (n <= 4) updateProgress(n);
+  if (n === 5) { document.getElementById('progress-wrap').style.display = 'none'; showStep(5); runGenerating(); }
+  else if (n === 6) { showStep(6); renderPreview(); }
+  else showStep(n);
+}
+
+/* ═══════════════════════════════════════════════════
+   VALIDATION
+═══════════════════════════════════════════════════ */
+function validate(step) {
+  if (step === 1) {
+    let ok = true;
+    if (!document.getElementById('biz-name').value.trim()) { document.getElementById('err-biz-name').classList.add('show'); ok = false; } else document.getElementById('err-biz-name').classList.remove('show');
+    if (!document.getElementById('industry').value) { document.getElementById('err-industry').classList.add('show'); ok = false; } else document.getElementById('err-industry').classList.remove('show');
+    return ok;
+  }
+  if (step === 3) {
+    if (!document.getElementById('audience').value.trim()) { document.getElementById('err-audience').classList.add('show'); return false; }
+    document.getElementById('err-audience').classList.remove('show');
+  }
+  if (step === 4) {
+    if (!state.designStyle) { document.getElementById('err-style').classList.add('show'); return false; }
+    document.getElementById('err-style').classList.remove('show');
+  }
+  return true;
+}
+
+/* ═══════════════════════════════════════════════════
+   DATA COLLECTION
+═══════════════════════════════════════════════════ */
+function collectStep(step) {
+  if (step === 1) {
+    state.bizName = document.getElementById('biz-name').value.trim();
+    state.tagline = document.getElementById('tagline').value.trim();
+    state.industry = document.getElementById('industry').value;
+    state.location = document.getElementById('location').value.trim();
+  }
+  if (step === 2) {
+    state.colorPrimary = document.getElementById('color-primary').value;
+    state.colorAccent = document.getElementById('color-accent').value;
+    const fontEl = document.querySelector('input[name="font"]:checked');
+    if (fontEl) state.fontStyle = fontEl.value;
+  }
+  if (step === 3) {
+    state.audience = document.getElementById('audience').value.trim();
+    state.problem = document.getElementById('problem').value.trim();
+    state.differentiator = document.getElementById('differentiator').value.trim();
+    state.ctaType = document.getElementById('cta-type').value;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   IMAGE UPLOADS
+═══════════════════════════════════════════════════ */
+function triggerUpload(field) {
+  // Don't double-trigger if already has file
+  const zone = document.getElementById(`zone-${field}`);
+  if (zone.classList.contains('has-file')) return;
+  document.getElementById(`file-${field}`).click();
+}
+
+async function handleUpload(field, event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const zone = document.getElementById(`zone-${field}`);
+  const stateEl = document.getElementById(`state-${field}`);
+
+  // Show uploading
+  zone.classList.add('uploading');
+  stateEl.innerHTML = `<div class="upload-spinner"></div><div class="upload-sub">Uploading…</div>`;
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/upload', { method:'POST', body: formData });
+
+    if (!res.ok) throw new Error('Upload failed');
+    const data = await res.json();
+    state[`${field}Url`] = data.url;
+
+    // Show preview
+    zone.classList.remove('uploading');
+    zone.classList.add('has-file');
+    stateEl.innerHTML = `
+      <img class="upload-preview-img" src="${data.url}" alt="Preview">
+      <div class="upload-file-name">✓ Uploaded</div>`;
+    document.getElementById('upload-error').classList.remove('show');
+
+  } catch (e) {
+    zone.classList.remove('uploading');
+    stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">Upload failed. Try again.</div>`;
+    document.getElementById('upload-error').textContent = 'Upload failed. Please try a different file.';
+    document.getElementById('upload-error').classList.add('show');
+    event.target.value = '';
+  }
+}
+
+function removeUpload(field, event) {
+  event.stopPropagation();
+  state[`${field}Url`] = null;
+  const zone = document.getElementById(`zone-${field}`);
+  const stateEl = document.getElementById(`state-${field}`);
+  zone.classList.remove('has-file');
+  document.getElementById(`file-${field}`).value = '';
+  const icons = { logo:'🖼️', hero:'🏔️', about:'👤' };
+  const labels = { logo:'Logo', hero:'Hero Photo', about:'About Photo' };
+  const subs = { logo:'PNG or SVG works best', hero:'Homepage banner image', about:'You or your team' };
+  stateEl.innerHTML = `<div class="upload-icon">${icons[field]}</div><div class="upload-label">${labels[field]}</div><div class="upload-sub">${subs[field]}</div>`;
+}
+
+/* ═══════════════════════════════════════════════════
+   COLOR SYNC
+═══════════════════════════════════════════════════ */
+function syncHex(which) { document.getElementById(`hex-${which}`).value = document.getElementById(`color-${which}`).value; }
+function syncColor(which) { const v = document.getElementById(`hex-${which}`).value; if (/^#[0-9A-Fa-f]{6}$/.test(v)) document.getElementById(`color-${which}`).value = v; }
+function selectFont(card, val) { document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('selected')); card.classList.add('selected'); state.fontStyle = val; }
+function selectStyle(card, style) { document.querySelectorAll('.style-card').forEach(c => c.classList.remove('selected')); card.classList.add('selected'); state.designStyle = style; document.getElementById('err-style').classList.remove('show'); }
+
+/* ═══════════════════════════════════════════════════
+   GENERATING
+═══════════════════════════════════════════════════ */
+function runGenerating() {
+  const steps = ['gs-1','gs-2','gs-3','gs-4'];
+  let i = 0;
+  function next() {
+    if (i > 0) { const prev = document.getElementById(steps[i-1]); prev.classList.remove('active'); prev.classList.add('done'); prev.querySelector('.gen-dot').textContent = '✓'; }
+    if (i < steps.length) { document.getElementById(steps[i]).classList.add('active'); i++; setTimeout(next, 850); }
+    else { setTimeout(() => goTo(6), 500); }
+  }
+  next();
+}
+
+/* ═══════════════════════════════════════════════════
+   PREVIEW (client-side — uses srcdoc for local view)
+═══════════════════════════════════════════════════ */
+function renderPreview() {
+  const iframe = document.getElementById('preview-frame');
+  // Build a lightweight preview HTML (uses the server's preview endpoint logic but inline)
+  const html = buildPreviewHtml(state);
+  iframe.srcdoc = html;
+  iframe.onload = () => {
+    try { iframe.style.height = (iframe.contentDocument.body.scrollHeight + 40) + 'px'; } catch(e){}
+  };
+}
+
+function buildPreviewHtml(s) {
+  const name = s.bizName || 'Your Business';
+  const tagline = s.tagline || `Passionate about ${s.industry || 'what we do'}`;
+  const audience = s.audience || 'discerning clients';
+  const cta = s.ctaType || 'Get Started';
+  const loc = s.location ? ` · ${s.location}` : '';
+
+  const logoHtml = s.logoUrl
+    ? `<img src="${s.logoUrl}" alt="${name} logo" style="max-height:50px;max-width:160px;object-fit:contain;">`
+    : `<div style="font-size:19px;font-weight:900;letter-spacing:-0.5px;">${name}</div>`;
+  const heroImg = s.heroUrl ? `<img src="${s.heroUrl}" style="width:100%;height:100%;object-fit:cover;" alt="Hero">` : '<span style="font-size:56px;">🌟</span>';
+  const aboutImg = s.aboutUrl ? `<img src="${s.aboutUrl}" style="width:100%;height:100%;object-fit:cover;" alt="About">` : '<span style="font-size:60px;">✨</span>';
+
+  const theme = getClientTheme(s);
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=${theme.fontUrl}&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}body{font-family:${theme.bodyFont};background:${theme.bg};color:${theme.text};}
+nav{background:${theme.navBg};padding:16px 40px;display:flex;align-items:center;justify-content:space-between;border-bottom:${theme.navBorder};}
+.nc{padding:9px 22px;background:${theme.primary};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:14px;font-weight:700;border:none;}
+.hero{padding:72px 40px;background:${theme.heroBg};display:grid;grid-template-columns:1fr 0.85fr;gap:56px;align-items:center;}
+.hi{border-radius:${theme.imgRadius};overflow:hidden;aspect-ratio:4/3;background:${theme.heroImgBg};display:flex;align-items:center;justify-content:center;}
+h1{font-family:${theme.headFont};font-size:clamp(28px,4.5vw,52px);font-weight:${theme.heroWeight};color:${theme.heroText};line-height:1.1;margin-bottom:18px;letter-spacing:${theme.heroTracking};}
+h1 em{color:${theme.accent};font-style:normal;}
+.hs{font-size:16px;color:${theme.heroSubText};margin-bottom:28px;}
+.bp{padding:14px 32px;background:${theme.primary};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:15px;font-weight:700;border:none;display:inline-block;}
+.tb{padding:16px 40px;background:${theme.trustBg};border-top:${theme.trustBorder};border-bottom:${theme.trustBorder};display:flex;gap:40px;flex-wrap:wrap;justify-content:center;}
+.ti{font-size:13px;font-weight:600;color:${theme.trustText};opacity:0.7;display:flex;align-items:center;gap:6px;}
+.td{width:5px;height:5px;border-radius:50%;background:${theme.accent};}
+.ab{padding:80px 40px;background:${theme.aboutBg};display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center;}
+.ai{border-radius:${theme.imgRadius};aspect-ratio:4/3;background:${theme.aboutImgBg};display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.ey{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${theme.accent};margin-bottom:10px;}
+.st{font-family:${theme.headFont};font-size:clamp(22px,3.5vw,36px);font-weight:${theme.heroWeight};color:${theme.headingColor};margin-bottom:14px;letter-spacing:${theme.heroTracking};}
+.sp{font-size:15px;color:${theme.subTextColor};line-height:1.7;margin-bottom:12px;}
+.fg{padding:80px 40px;background:${theme.featureBg};}
+.fgg{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:40px;}
+.fc{background:${theme.cardBg};border-radius:${theme.cardRadius};padding:28px;border:${theme.cardBorder};}
+.fi{font-size:32px;margin-bottom:14px;}.ft{font-family:${theme.headFont};font-size:17px;font-weight:700;color:${theme.headingColor};margin-bottom:8px;}.fx{font-size:14px;color:${theme.subTextColor};line-height:1.6;}
+.cs{padding:80px 40px;background:${theme.ctaSectionBg};text-align:center;${theme.ctaExtra}}
+.cs h2{font-family:${theme.headFont};font-size:clamp(28px,4vw,44px);font-weight:${theme.heroWeight};color:${theme.ctaSectionText};margin-bottom:14px;}
+.cs p{font-size:16px;color:${theme.ctaSectionSub};margin-bottom:32px;}
+footer{background:${theme.footerBg};padding:32px 40px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+.fn{font-size:17px;font-weight:800;color:${theme.footerText};}
+.fc2{font-size:12px;color:${theme.footerText};opacity:0.5;}
+</style></head><body>
+<nav>${logoHtml}<div style="display:flex;gap:28px;font-size:14px;font-weight:500;color:${theme.navText};opacity:0.8;"><span>About</span><span>Services</span><span>Contact</span></div><button class="nc">${cta}</button></nav>
+<div class="hero"><div>
+  <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${theme.accent};margin-bottom:14px;">${s.industry || 'Business'}${loc}</div>
+  <h1>${heroHeadline(name, s.industry)}</h1>
+  <p class="hs">${tagline}</p>
+  <button class="bp">${cta} →</button>
+</div><div class="hi">${heroImg}</div></div>
+<div class="tb"><div class="ti"><div class="td"></div>Trusted worldwide</div><div class="ti"><div class="td"></div>5-star rated</div><div class="ti"><div class="td"></div>100% satisfaction</div><div class="ti"><div class="td"></div>${s.location || 'Available online'}</div></div>
+<div class="ab"><div class="ai">${aboutImg}</div><div>
+  <div class="ey">Our Story</div>
+  <div class="st">We exist for ${audience.split(' ').slice(0,5).join(' ')}…</div>
+  <p class="sp">${s.problem || `At ${name}, we make it easy to get exactly what you need.`}</p>
+  <p class="sp">${s.differentiator || 'We bring a unique approach and deep expertise to everything we do.'}</p>
+  <button class="bp" style="margin-top:10px;">${cta} →</button>
+</div></div>
+<div class="fg">
+  <div style="text-align:center;"><div class="ey">Why Choose Us</div><div class="st" style="margin-bottom:8px;">What makes ${name} different</div></div>
+  <div class="fgg">
+    <div class="fc"><div class="fi">${theme.feat1}</div><div class="ft">Quality First</div><div class="fx">Crafted with care and relentless attention to detail.</div></div>
+    <div class="fc"><div class="fi">${theme.feat2}</div><div class="ft">Personal Touch</div><div class="fx">We tailor our approach to your unique situation.</div></div>
+    <div class="fc"><div class="fi">${theme.feat3}</div><div class="ft">Real Results</div><div class="fx">Measurable, meaningful outcomes every time.</div></div>
+  </div>
+</div>
+<div class="cs"><h2>Ready to get started?</h2><p>Join the people already working with ${name}.</p>
+<button class="bp" style="background:${theme.ctaSectionBtn};color:${theme.ctaSectionBtnText};font-size:16px;padding:16px 40px;">${cta} →</button></div>
+<footer><div class="fn">${name}</div><div class="fc2">© ${new Date().getFullYear()} ${name}. All rights reserved.</div></footer>
+</body></html>`;
+}
+
+function heroHeadline(name, industry) {
+  const map = {'Photography':`Capturing your story,<br><em>beautifully.</em>`,'Beauty & Wellness':`Feel your best,<br><em>inside & out.</em>`,'Food & Beverage':`Made with love,<br><em>served with pride.</em>`,'Fashion & Apparel':`Style that speaks<br><em>for itself.</em>`,'Health & Fitness':`Your strongest self<br><em>starts here.</em>`,'Home & Interior':`Spaces you'll<br><em>love to live in.</em>`,'Art & Creative':`Art that moves<br><em>the world.</em>`,'Coaching & Consulting':`Clarity, strategy,<br><em>results.</em>`,'Real Estate':`Find the home<br><em>you deserve.</em>`,'Technology':`Built for the<br><em>future, today.</em>`,'Retail / E-commerce':`Shop smarter,<br><em>live better.</em>`,'Non-profit':`Making a difference,<br><em>together.</em>`};
+  return map[industry] || `${name}:<br><em>Where quality meets purpose.</em>`;
+}
+
+function getClientTheme(s) {
+  const p = s.colorPrimary || '#6C47FF', a = s.colorAccent || '#FF6B6B', font = s.fontStyle || 'modern', style = s.designStyle || 'light-airy';
+  const fm = {modern:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;700;800",bodyFont:"'Inter',sans-serif",heroWeight:800,heroTracking:'-1px'},elegant:{headFont:"'Playfair Display',serif",fontUrl:"Playfair+Display:wght@400;700",bodyFont:"'Inter',sans-serif",heroWeight:700,heroTracking:'-0.5px'},playful:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;800;900",bodyFont:"'Inter',sans-serif",heroWeight:900,heroTracking:'-2px'}};
+  const f = fm[font]||fm.modern;
+  const base = {...f,primary:p,accent:a};
+  const themes = {
+    'light-airy':{...base,bg:'#FAF7F2',text:'#3D2B1F',navBg:'#FFFEF9',navBorder:'1px solid #F0E8DC',navText:'#3D2B1F',heroBg:'#FAF7F2',heroText:'#3D2B1F',heroSubText:'#7B6E65',heroImgBg:'linear-gradient(135deg,#F5E6D3,#EDD5B8)',trustBg:'#F5EFE6',trustBorder:'1px solid #E8D5C4',trustText:'#7B6E65',aboutBg:'#FFFEF9',aboutImgBg:'linear-gradient(135deg,#EDD5B8,#F5E6D3)',featureBg:'#FAF7F2',cardBg:'#FFFEF9',cardRadius:'14px',cardBorder:'1px solid #F0E8DC',ctaSectionBg:'#C4966A',ctaExtra:'',ctaSectionText:'#FFFEF9',ctaSectionSub:'rgba(255,255,255,0.8)',ctaSectionBtn:'#FFFEF9',ctaSectionBtnText:'#3D2B1F',footerBg:'#3D2B1F',footerText:'#FAF7F2',headingColor:'#3D2B1F',subTextColor:'#7B6E65',imgRadius:'18px',btnRadius:'8px',ctaText:'#FFFEF9',feat1:'🌺',feat2:'🤝',feat3:'⭐'},
+    'bold-modern':{...base,bg:'#0D0D0D',text:'#FFF',navBg:'#0D0D0D',navBorder:'1px solid #1F1F1F',navText:'#FFF',heroBg:'#0D0D0D',heroText:'#FFF',heroSubText:'#9CA3AF',heroImgBg:`linear-gradient(135deg,${p}33,${a}33)`,trustBg:'#111',trustBorder:'1px solid #1F1F1F',trustText:'#9CA3AF',aboutBg:'#111',aboutImgBg:`linear-gradient(135deg,#1F1F1F,${p}22)`,featureBg:'#0D0D0D',cardBg:'#111',cardRadius:'10px',cardBorder:'1px solid #1F1F1F',ctaSectionBg:`linear-gradient(135deg,${p},${a})`,ctaExtra:'',ctaSectionText:'#FFF',ctaSectionSub:'rgba(255,255,255,0.8)',ctaSectionBtn:'#FFF',ctaSectionBtnText:'#0D0D0D',footerBg:'#000',footerText:'#FFF',headingColor:'#FFF',subTextColor:'#9CA3AF',imgRadius:'10px',btnRadius:'6px',ctaText:'#FFF',feat1:'⚡',feat2:'🛡️',feat3:'🎯'},
+    'earthy':{...base,bg:'#F4F1EC',text:'#2C1A0E',navBg:'#EDE9E0',navBorder:'1px solid #D4C4A8',navText:'#2C1A0E',heroBg:'#F4F1EC',heroText:'#2C1A0E',heroSubText:'#6B5544',heroImgBg:'linear-gradient(135deg,#D4C4A8,#C4A882)',trustBg:'#EDE9E0',trustBorder:'1px solid #D4C4A8',trustText:'#6B5544',aboutBg:'#FFFDF8',aboutImgBg:'linear-gradient(135deg,#C4A882,#D4C4A8)',featureBg:'#F4F1EC',cardBg:'#FFFDF8',cardRadius:'14px',cardBorder:'1px solid #E8DDD0',ctaSectionBg:'#5A7A3A',ctaExtra:'',ctaSectionText:'#FFFDF8',ctaSectionSub:'rgba(255,253,248,0.8)',ctaSectionBtn:'#FFFDF8',ctaSectionBtnText:'#2C1A0E',footerBg:'#2C1A0E',footerText:'#F4F1EC',headingColor:'#2C1A0E',subTextColor:'#6B5544',imgRadius:'18px',btnRadius:'40px',ctaText:'#FFFDF8',feat1:'🌱',feat2:'🤝',feat3:'🍀'},
+    'luxe':{...base,primary:'#C9A84C',accent:'#C9A84C',bg:'#0A0A0A',text:'#F5F0E8',navBg:'#0A0A0A',navBorder:'1px solid #C9A84C33',navText:'#F5F0E8',heroBg:'#0A0A0A',heroText:'#F5F0E8',heroSubText:'#9A8C6E',heroImgBg:'linear-gradient(135deg,#1C1C1C,#2A2008)',trustBg:'#0F0F0F',trustBorder:'1px solid #C9A84C22',trustText:'#9A8C6E',aboutBg:'#0F0F0F',aboutImgBg:'linear-gradient(135deg,#1C1C1C,#2A2008)',featureBg:'#0A0A0A',cardBg:'#111',cardRadius:'6px',cardBorder:'1px solid #C9A84C22',ctaSectionBg:'linear-gradient(135deg,#1C1400,#2A2008)',ctaExtra:'border-top:1px solid #C9A84C33;border-bottom:1px solid #C9A84C33;',ctaSectionText:'#C9A84C',ctaSectionSub:'#9A8C6E',ctaSectionBtn:'#C9A84C',ctaSectionBtnText:'#0A0A0A',footerBg:'#050505',footerText:'#9A8C6E',headingColor:'#F5F0E8',subTextColor:'#9A8C6E',imgRadius:'4px',btnRadius:'3px',ctaText:'#0A0A0A',feat1:'💎',feat2:'🤍',feat3:'✦'},
+    'playful':{...base,bg:'#FFF8F0',text:'#1A0A00',navBg:'#FFF',navBorder:'1px solid #FFE0B2',navText:'#1A0A00',heroBg:'#FFF8F0',heroText:'#1A0A00',heroSubText:'#7A4A00',heroImgBg:'linear-gradient(135deg,#FFE566,#FFB347)',trustBg:'#FFF3E0',trustBorder:'1px solid #FFE0B2',trustText:'#7A4A00',aboutBg:'#FFFEF9',aboutImgBg:'linear-gradient(135deg,#FFE566,#FF6B6B)',featureBg:'#FFF8F0',cardBg:'#FFF',cardRadius:'22px',cardBorder:'2px solid #FFE0B2',ctaSectionBg:'#FF6B6B',ctaExtra:'',ctaSectionText:'#FFF',ctaSectionSub:'rgba(255,255,255,0.85)',ctaSectionBtn:'#FFF',ctaSectionBtnText:'#FF6B6B',footerBg:'#1A0A00',footerText:'#FFF8F0',headingColor:'#1A0A00',subTextColor:'#7A4A00',imgRadius:'22px',btnRadius:'50px',ctaText:'#FFF',feat1:'🎈',feat2:'🌈',feat3:'🏆'},
+    'professional':{...base,bg:'#F0F4FA',text:'#0F172A',navBg:'#1E3A5F',navBorder:'none',navText:'#FFF',heroBg:'#F0F4FA',heroText:'#0F172A',heroSubText:'#475569',heroImgBg:'linear-gradient(135deg,#CBD5E1,#94A3B8)',trustBg:'#1E3A5F',trustBorder:'none',trustText:'#FFF',aboutBg:'#FFF',aboutImgBg:'linear-gradient(135deg,#CBD5E1,#E2E8F0)',featureBg:'#F0F4FA',cardBg:'#FFF',cardRadius:'8px',cardBorder:'1px solid #E2E8F0',ctaSectionBg:'#0F172A',ctaExtra:'',ctaSectionText:'#FFF',ctaSectionSub:'rgba(255,255,255,0.7)',ctaSectionBtn:'#FFF',ctaSectionBtnText:'#0F172A',footerBg:'#0F172A',footerText:'#FFF',headingColor:'#0F172A',subTextColor:'#475569',imgRadius:'8px',btnRadius:'6px',ctaText:'#FFF',feat1:'📊',feat2:'🔒',feat3:'✅'}
+  };
+  return themes[style]||themes['light-airy'];
+}
+
+/* ═══════════════════════════════════════════════════
+   SAVE & SHARE
+═══════════════════════════════════════════════════ */
+async function saveAndShare() {
+  if (!authToken) {
+    pendingSave = true;
+    openAuthModal('register');
+    return;
+  }
+  const btn = document.getElementById('btn-share');
+  btn.textContent = '⏳ Saving…';
+  btn.disabled = true;
+
+  try {
+    let res, data;
+    if (editMode && currentSiteUuid) {
+      // Update existing site
+      res = await fetch(`/api/sites/${currentSiteUuid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ data: state })
+      });
+      data = await res.json();
+    } else {
+      // Create new site
+      res = await fetch('/api/sites', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ data: state })
+      });
+      data = await res.json();
+    }
+    if (!res.ok) throw new Error(data.error || 'Save failed');
+
+    currentSiteUuid = data.uuid;
+
+    // Switch iframe to live server-rendered preview
+    const iframe = document.getElementById('preview-frame');
+    iframe.src = `/preview/${data.uuid}`;
+    iframe.removeAttribute('srcdoc');
+    iframe.onload = () => {
+      try { iframe.style.height = (iframe.contentDocument.body.scrollHeight + 40) + 'px'; } catch(e){}
+    };
+
+    // Show share box
+    document.getElementById('share-url-input').value = data.url;
+    document.getElementById('share-box').classList.add('show');
+    btn.textContent = editMode ? '✓ Updated!' : '✓ Saved!';
+    btn.style.background = '#10B981';
+    setTimeout(() => { btn.textContent = '🔗 Save & Share'; btn.style.background = ''; btn.disabled = false; }, 3000);
+
+    // Show domain section based on plan
+    renderDomainSection(authPlan, data.uuid);
+
+    // Prompt upgrade if free user (only on first save, not edits)
+    if (authPlan === 'free' && !editMode) {
+      setTimeout(() => openUpgradeModal(), 1800);
+    }
+  } catch (e) {
+    btn.textContent = '❌ Failed — try again';
+    btn.style.background = '#EF4444';
+    setTimeout(() => { btn.textContent = '🔗 Save & Share'; btn.style.background = ''; btn.disabled = false; }, 3000);
+  }
+}
+
+function copyLink() {
+  const url = document.getElementById('share-url-input').value;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('btn-copy');
+    btn.textContent = '✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function openLink() {
+  const url = document.getElementById('share-url-input').value;
+  if (url) window.open(url, '_blank');
+}
+
+/* ═══════════════════════════════════════════════════
+   MY SITES DRAWER
+═══════════════════════════════════════════════════ */
+async function openDrawer() {
+  document.getElementById('sites-drawer').classList.add('open');
+  const listEl = document.getElementById('sites-list');
+  listEl.innerHTML = '<div class="empty-sites">Loading your sites…</div>';
+  try {
+    const res = await fetch('/api/sites', { headers:{ 'Authorization':`Bearer ${authToken}` } });
+    const sites = await res.json();
+    if (!sites.length) { listEl.innerHTML = '<div class="empty-sites">No sites yet! Fill out the form to create your first one. 🚀</div>'; return; }
+    const styleEmoji = {'light-airy':'☁️','bold-modern':'⚡','earthy':'🌿','luxe':'✨','playful':'🎈','professional':'💼'};
+    listEl.innerHTML = sites.map(s => `
+      <div class="site-item" style="cursor:pointer;" onclick="viewSiteInDashboard('${escHtml(s.uuid)}')">
+        <div class="site-thumb" style="background:#EEE9FF;">${styleEmoji[s.designStyle]||'🌐'}</div>
+        <div class="site-item-info">
+          <div class="site-item-name">${escHtml(s.bizName||'Untitled Site')}</div>
+          <div class="site-item-meta">${escHtml(s.industry||'')} · ${new Date(s.created_at).toLocaleDateString()}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;" onclick="event.stopPropagation()">
+          <button class="site-item-open" style="border-color:var(--brand);color:var(--brand);" onclick="editSite('${escHtml(s.uuid)}')">✏️ Edit</button>
+          <button class="site-item-open" onclick="window.open('/preview/${escHtml(s.uuid)}','_blank')">Open ↗</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    listEl.innerHTML = '<div class="empty-sites">Could not load sites. Please try again.</div>';
+  }
+}
+
+function closeDrawer() { document.getElementById('sites-drawer').classList.remove('open'); }
+
+async function editSite(uuid) {
+  closeDrawer();
+  try {
+    const res = await fetch(`/api/sites/${uuid}`, { headers:{ 'Authorization':`Bearer ${authToken}` } });
+    if (!res.ok) throw new Error('Could not load site');
+    const data = await res.json();
+
+    // Populate state
+    Object.assign(state, {
+      bizName: data.bizName || '',
+      tagline: data.tagline || '',
+      industry: data.industry || '',
+      location: data.location || '',
+      logoUrl: data.logoUrl || null,
+      heroUrl: data.heroUrl || null,
+      aboutUrl: data.aboutUrl || null,
+      colorPrimary: data.colorPrimary || '#6C47FF',
+      colorAccent: data.colorAccent || '#FF6B6B',
+      fontStyle: data.fontStyle || 'modern',
+      audience: data.audience || '',
+      problem: data.problem || '',
+      differentiator: data.differentiator || '',
+      ctaType: data.ctaType || 'Book a Call',
+      designStyle: data.designStyle || null,
+    });
+
+    // Set edit mode
+    editMode = true;
+    currentSiteUuid = uuid;
+
+    // Populate form fields
+    document.getElementById('biz-name').value = state.bizName;
+    document.getElementById('tagline').value = state.tagline;
+    document.getElementById('industry').value = state.industry;
+    document.getElementById('location').value = state.location;
+    document.getElementById('color-primary').value = state.colorPrimary;
+    document.getElementById('hex-primary').value = state.colorPrimary;
+    document.getElementById('color-accent').value = state.colorAccent;
+    document.getElementById('hex-accent').value = state.colorAccent;
+    document.getElementById('audience').value = state.audience;
+    document.getElementById('problem').value = state.problem;
+    document.getElementById('differentiator').value = state.differentiator;
+    document.getElementById('cta-type').value = state.ctaType;
+
+    // Font style
+    document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('selected'));
+    const fontCard = document.querySelector(`.radio-card input[value="${state.fontStyle}"]`);
+    if (fontCard) fontCard.closest('.radio-card').classList.add('selected');
+
+    // Design style
+    document.querySelectorAll('.style-card').forEach(c => c.classList.remove('selected'));
+    if (state.designStyle) {
+      document.querySelector(`.style-card[onclick*="${state.designStyle}"]`)?.classList.add('selected');
+    }
+
+    // Image previews
+    ['logo','hero','about'].forEach(field => {
+      const url = state[`${field}Url`];
+      const zone = document.getElementById(`zone-${field}`);
+      const stateEl = document.getElementById(`state-${field}`);
+      if (url) {
+        zone.classList.add('has-file');
+        stateEl.innerHTML = `<img class="upload-preview-img" src="${escHtml(url)}" alt="Preview"><div class="upload-file-name">✓ Uploaded</div>`;
+      } else {
+        zone.classList.remove('has-file');
+      }
+    });
+
+    // Navigate to step 1 with edit badge
+    document.getElementById('progress-wrap').style.display = 'block';
+    buildProgressBar();
+    currentStep = 0;
+    goTo(1);
+
+    // Update step 1 heading to reflect edit mode
+    document.querySelector('#step-1 h2').textContent = 'Edit your business info';
+    document.querySelector('#step-1 p.sub').textContent = 'Update any details, then click through to save your changes.';
+
+  } catch(e) {
+    alert('Could not load site for editing: ' + e.message);
+  }
+}
+
+async function viewSiteInDashboard(uuid) {
+  closeDrawer();
+  // Jump to preview step showing this site's live preview
+  currentSiteUuid = uuid;
+  editMode = false;
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-preview').classList.add('active');
+  document.getElementById('share-box').classList.remove('show');
+  const iframe = document.getElementById('preview-frame');
+  iframe.src = `/preview/${uuid}`;
+  iframe.removeAttribute('srcdoc');
+  document.getElementById('share-url-input').value = `${location.origin}/preview/${uuid}`;
+  document.getElementById('share-box').classList.add('show');
+  document.getElementById('btn-share').textContent = '✏️ Edit Site';
+  document.getElementById('btn-share').onclick = () => editSite(uuid);
+  renderDomainSection(authPlan, uuid);
+}
+
+/* ═══════════════════════════════════════════════════
+   UPGRADE MODAL
+═══════════════════════════════════════════════════ */
+function openUpgradeModal() {
+  document.getElementById('upgrade-modal').classList.add('show');
+}
+function closeUpgradeModal() {
+  document.getElementById('upgrade-modal').classList.remove('show');
+}
+
+async function startCheckout(plan) {
+  if (!authToken) { openAuthModal('register'); return; }
+  const btn = document.querySelector(`#upgrade-modal .btn-upgrade[onclick="startCheckout('${plan}')"]`);
+  if (btn) { btn.textContent = 'Redirecting…'; btn.classList.add('loading'); }
+  try {
+    const res = await fetch(`/api/checkout/${plan}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Checkout failed');
+    window.location.href = data.url;
+  } catch (e) {
+    alert('Could not start checkout: ' + e.message);
+    if (btn) { btn.textContent = plan === 'starter' ? 'Get Starter →' : 'Get Pro →'; btn.classList.remove('loading'); }
+  }
+}
+
+async function openBillingPortal() {
+  try {
+    const res = await fetch('/api/billing/portal', { method:'POST', headers:{ Authorization:`Bearer ${authToken}` } });
+    const data = await res.json();
+    if (data.url) window.open(data.url, '_blank');
+    else alert('Could not open billing portal.');
+  } catch(e) { alert('Error opening billing portal.'); }
+}
+
+/* ═══════════════════════════════════════════════════
+   DOMAIN SETUP
+═══════════════════════════════════════════════════ */
+function renderDomainSection(plan, uuid) {
+  const section = document.getElementById('domain-section');
+  const content = document.getElementById('domain-section-content');
+  const title = document.getElementById('domain-section-title');
+  section.style.display = 'block';
+
+  if (plan === 'free') {
+    // Tease subdomain — locked
+    title.textContent = '🌐 Want a custom address?';
+    content.innerHTML = `
+      <div class="domain-lock" onclick="openUpgradeModal()">
+        🔒 <span>Get <strong>yourbrand.sitesnap.app</strong> — upgrade to Starter ($29 one-time)</span>
+      </div>
+      <div class="domain-lock" onclick="openUpgradeModal()" style="margin-top:6px;">
+        🔒 <span>Connect <strong>yourbrand.com</strong> — upgrade to Pro ($12/month)</span>
+      </div>`;
+  } else if (plan === 'starter') {
+    title.textContent = '🌐 Set your sitesnap.app address';
+    content.innerHTML = `
+      <div class="domain-row">
+        <div class="domain-input-wrap">
+          <div class="domain-suffix" style="border-left:none;border-right:none;background:white;flex:1;padding:0;">
+            <input class="domain-text-input" id="subdomain-input" placeholder="yourbrand" maxlength="30" style="width:100%;"
+              oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+          </div>
+          <div class="domain-suffix">.sitesnap.app</div>
+        </div>
+        <button class="btn-domain-save" id="btn-subdomain-save" onclick="saveSubdomain('${uuid}')">Save</button>
+      </div>
+      <div class="domain-result" id="subdomain-result"></div>
+      <div style="margin-top:10px;" class="domain-lock" onclick="openUpgradeModal()">
+        🔒 <span>Connect <strong>yourbrand.com</strong> — upgrade to Pro ($12/month)</span>
+      </div>`;
+  } else if (plan === 'pro') {
+    title.textContent = '🌐 Your custom addresses';
+    content.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <div class="domain-section-title" style="margin-bottom:6px;font-size:11px;">sitesnap.app address (included)</div>
+        <div class="domain-row">
+          <div class="domain-input-wrap">
+            <input class="domain-text-input" id="subdomain-input" placeholder="yourbrand" maxlength="30" style="width:100%;"
+              oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+            <div class="domain-suffix">.sitesnap.app</div>
+          </div>
+          <button class="btn-domain-save" onclick="saveSubdomain('${uuid}')">Save</button>
+        </div>
+        <div class="domain-result" id="subdomain-result"></div>
+      </div>
+      <div>
+        <div class="domain-section-title" style="margin-bottom:6px;font-size:11px;">Custom domain (Pro)</div>
+        <div class="domain-row">
+          <div class="domain-input-wrap">
+            <input class="domain-text-input" id="custom-domain-input" placeholder="yourbrand.com" style="width:100%;">
+          </div>
+          <button class="btn-domain-save" onclick="saveCustomDomain('${uuid}')">Connect</button>
+        </div>
+        <div class="domain-result" id="customdomain-result"></div>
+        <div class="dns-instructions" id="dns-instructions">
+          Point your domain's DNS to us:<br>
+          Add a <span class="dns-code">CNAME</span> record → <span class="dns-code">sitesnap.app</span><br>
+          (or an <span class="dns-code">A</span> record to your server IP)<br>
+          SSL is automatic — takes a few minutes after DNS propagates.<br><br>
+          <button class="btn-domain-save" id="btn-dns-check" onclick="checkDns('${uuid}')" style="background:#6B7280;font-size:12px;padding:8px 14px;">🔍 Check DNS Status</button>
+          <div id="dns-check-result" style="margin-top:6px;font-size:12px;"></div>
+        </div>
+      </div>`;
+  }
+}
+
+async function saveSubdomain(uuid) {
+  const sub = (document.getElementById('subdomain-input')?.value || '').trim();
+  const resultEl = document.getElementById('subdomain-result');
+  if (!sub) { resultEl.textContent = 'Please enter a subdomain.'; resultEl.className = 'domain-result error'; return; }
+  const btn = document.getElementById('btn-subdomain-save');
+  if (btn) { btn.textContent = 'Saving…'; btn.disabled = true; }
+  try {
+    const res = await fetch(`/api/sites/${uuid}/subdomain`, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', Authorization:`Bearer ${authToken}` },
+      body: JSON.stringify({ subdomain: sub })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    resultEl.textContent = `✓ Live at: ${data.url}`;
+    resultEl.className = 'domain-result success';
+  } catch(e) {
+    resultEl.textContent = '✗ ' + e.message;
+    resultEl.className = 'domain-result error';
+  } finally {
+    if (btn) { btn.textContent = 'Save'; btn.disabled = false; }
+  }
+}
+
+async function saveCustomDomain(uuid) {
+  const domain = (document.getElementById('custom-domain-input')?.value || '').trim();
+  const resultEl = document.getElementById('customdomain-result');
+  const dnsEl = document.getElementById('dns-instructions');
+  if (!domain) { resultEl.textContent = 'Please enter your domain.'; resultEl.className = 'domain-result error'; return; }
+  try {
+    const res = await fetch(`/api/sites/${uuid}/domain`, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', Authorization:`Bearer ${authToken}` },
+      body: JSON.stringify({ domain })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    resultEl.textContent = `✓ Connected! Now point your DNS (see below).`;
+    resultEl.className = 'domain-result success';
+    if (dnsEl) dnsEl.classList.add('show');
+  } catch(e) {
+    resultEl.textContent = '✗ ' + e.message;
+    resultEl.className = 'domain-result error';
+  }
+}
+
+async function checkDns(uuid) {
+  const domain = (document.getElementById('custom-domain-input')?.value || '').trim();
+  const resultEl = document.getElementById('dns-check-result');
+  const btn = document.getElementById('btn-dns-check');
+  if (!domain) { resultEl.textContent = 'Enter your domain above first.'; resultEl.style.color = 'var(--danger)'; return; }
+  if (btn) { btn.textContent = 'Checking…'; btn.disabled = true; }
+  try {
+    const res = await fetch(`/api/domain/dns-check?domain=${encodeURIComponent(domain)}`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    });
+    const data = await res.json();
+    if (data.pointed) {
+      resultEl.textContent = `✓ DNS is pointing correctly! SSL will activate shortly.`;
+      resultEl.style.color = 'var(--success)';
+    } else if (data.cnames && data.cnames.length) {
+      resultEl.textContent = `⚠ DNS found but points to: ${data.cnames.join(', ')} — needs to point to ${data.target}`;
+      resultEl.style.color = '#F59E0B';
+    } else {
+      resultEl.textContent = `✗ No CNAME found yet. DNS can take up to 48 hours to propagate.`;
+      resultEl.style.color = 'var(--danger)';
+    }
+  } catch(e) {
+    resultEl.textContent = 'Check failed — try again.';
+    resultEl.style.color = 'var(--danger)';
+  } finally {
+    if (btn) { btn.textContent = '🔍 Check DNS Status'; btn.disabled = false; }
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   UTILS
+═══════════════════════════════════════════════════ */
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
