@@ -36,6 +36,155 @@ const APP_DOMAIN = process.env.APP_DOMAIN || 'sitesnap.app';
 const CNAME_TARGET = process.env.CNAME_TARGET || 'sitesnap-production-b50b.up.railway.app';
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 
+// ── RAILWAY API ────────────────────────────────────────────────────────────────
+// Lets us register customer domains with Railway automatically instead of
+// adding each one by hand in the dashboard. If these aren't set, the app falls
+// back to showing generic manual instructions (see saveCustomDomain).
+const RAILWAY_API_TOKEN = process.env.RAILWAY_API_TOKEN || '';
+const RAILWAY_PROJECT_ID = process.env.RAILWAY_PROJECT_ID || '';
+const RAILWAY_ENVIRONMENT_ID = process.env.RAILWAY_ENVIRONMENT_ID || '';
+const RAILWAY_SERVICE_ID = process.env.RAILWAY_SERVICE_ID || '';
+const RAILWAY_READY = Boolean(
+  RAILWAY_API_TOKEN && RAILWAY_PROJECT_ID && RAILWAY_ENVIRONMENT_ID && RAILWAY_SERVICE_ID
+);
+
+async function railwayGraphQL(query, variables = {}) {
+  const res = await fetch('https://backboard.railway.com/graphql/v2', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${RAILWAY_API_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (res.status === 429) {
+    const retry = res.headers.get('Retry-After');
+    throw new Error(`Railway rate limit reached. Try again in ${retry || 'a few'} seconds.`);
+  }
+
+  const json = await res.json().catch(() => null);
+  if (!json) throw new Error(`Railway API returned a non-JSON response (HTTP ${res.status})`);
+  if (json.errors?.length) throw new Error(json.errors.map(e => e.message).join('; '));
+  return json.data;
+}
+
+// Register a domain with Railway and return the DNS records the customer needs.
+// Railway is the source of truth here — we display exactly what it gives us
+// rather than guessing, which also picks up the required TXT verification record.
+async function railwayAddDomain(domain) {
+  const avail = await railwayGraphQL(
+    `query ($domain: String!) {
+       customDomainAvailable(domain: $domain) { available message }
+     }`,
+    { domain }
+  );
+  if (!avail?.customDomainAvailable?.available) {
+    throw new Error(avail?.customDomainAvailable?.message || 'That domain is not available.');
+  }
+
+  const created = await railwayGraphQL(
+    `mutation ($input: CustomDomainCreateInput!) {
+       customDomainCreate(input: $input) {
+         id
+         domain
+         status {
+           verificationToken
+           dnsRecords { hostlabel requiredValue currentValue status recordType zone }
+         }
+       }
+     }`,
+    { input: {
+        projectId: RAILWAY_PROJECT_ID,
+        environmentId: RAILWAY_ENVIRONMENT_ID,
+        serviceId: RAILWAY_SERVICE_ID,
+        domain,
+    } }
+  );
+  return created.customDomainCreate;
+}
+
+async function railwayDomainStatus(domainId) {
+  const data = await railwayGraphQL(
+    `query ($id: String!, $projectId: String!) {
+       customDomain(id: $id, projectId: $projectId) {
+         id
+         domain
+         status {
+           verificationToken
+           certificateStatus
+           dnsRecords { hostlabel requiredValue currentValue status recordType zone }
+         }
+       }
+     }`,
+    { id: domainId, projectId: RAILWAY_PROJECT_ID }
+  );
+  return data.customDomain;
+}
+
+async function railwayDeleteDomain(domainId) {
+  return railwayGraphQL(`mutation ($id: String!) { customDomainDelete(id: $id) }`, { id: domainId });
+}
+
+// Railway allows as few as 100 API requests/hour on the lowest tier. Impatient
+// customers clicking "check" repeatedly would burn through that, so cache each
+// domain's status briefly — DNS doesn't propagate faster than this anyway.
+const DOMAIN_STATUS_TTL_MS = 60 * 1000;
+const domainStatusCache = new Map();
+
+function getCachedDomainStatus(domainId) {
+  const hit = domainStatusCache.get(domainId);
+  if (!hit) return null;
+  if (Date.now() - hit.at > DOMAIN_STATUS_TTL_MS) {
+    domainStatusCache.delete(domainId);
+    return null;
+  }
+  return hit.value;
+}
+
+function clearCachedDomainStatus(domainId) {
+  if (domainId) domainStatusCache.delete(domainId);
+}
+
+function setCachedDomainStatus(domainId, value) {
+  domainStatusCache.set(domainId, { at: Date.now(), value });
+  // Keep the map from growing without bound on a long-lived process
+  if (domainStatusCache.size > 500) {
+    const oldest = [...domainStatusCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) domainStatusCache.delete(oldest[0]);
+  }
+}
+
+// Turn Railway's DNS records into the shape the setup guide renders.
+// Railway returns the routing record; the TXT verification record comes back
+// separately in verificationToken, so we stitch them into one list.
+function formatDnsRecords(rwDomain) {
+  const st = rwDomain?.status || {};
+  const records = (st.dnsRecords || []).map(r => ({
+    type: r.recordType || 'CNAME',
+    host: r.hostlabel || '@',
+    value: r.requiredValue,
+    current: r.currentValue || null,
+    status: r.status || 'PENDING',
+    purpose: 'routing',
+  }));
+  if (st.verificationToken) {
+    // Railway returns the verification token without its own status field.
+    // A certificate is only issued after the domain verifies, so treat ISSUED
+    // as proof the TXT record landed — otherwise a working site would show
+    // this record stuck on "waiting" forever.
+    records.push({
+      type: 'TXT',
+      host: '_railway',
+      value: st.verificationToken,
+      current: null,
+      status: st.certificateStatus === 'ISSUED' ? 'VALID' : 'PENDING',
+      purpose: 'verification',
+    });
+  }
+  return records;
+}
+
 // ── PLANS ──────────────────────────────────────────────────────────────────────
 const PLANS = {
   starter: { name: 'Starter', price: 2900, mode: 'payment',      label: '$29 one-time' },
@@ -79,6 +228,8 @@ db.exec(`
   "ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT",
   "ALTER TABLE sites ADD COLUMN subdomain TEXT",
   "ALTER TABLE sites ADD COLUMN custom_domain TEXT",
+  // Railway's ID for the custom domain, so we can check status and clean up
+  "ALTER TABLE sites ADD COLUMN railway_domain_id TEXT",
 ].forEach(sql => { try { db.exec(sql); } catch (_) {} });
 
 // ── FILE UPLOAD ────────────────────────────────────────────────────────────────
@@ -337,30 +488,71 @@ app.post('/api/sites/:uuid/subdomain', requireAuth, requirePlan('starter'), (req
 });
 
 // ── CUSTOM DOMAIN (Pro) ────────────────────────────────────────────────────────
-app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), (req, res) => {
+app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req, res) => {
   const { domain } = req.body || {};
   if (!domain) return res.status(400).json({ error: 'Domain is required' });
   const clean = domain.toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-  const site = db.prepare('SELECT user_id FROM sites WHERE uuid = ?').get(req.params.uuid);
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(clean)) {
+    return res.status(400).json({ error: 'That doesn\'t look like a valid domain. Example: www.yourbrand.com' });
+  }
+
+  const site = db.prepare('SELECT user_id, railway_domain_id FROM sites WHERE uuid = ?').get(req.params.uuid);
   if (!site || site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
 
+  // Root domains can't use CNAME — flagged so the guide can warn about ALIAS/ANAME
+  const isRoot = clean.split('.').length === 2;
+
+  // No Railway credentials configured — save locally and show manual instructions.
+  // The domain won't actually route until someone adds it in the Railway dashboard.
+  if (!RAILWAY_READY) {
+    try {
+      db.prepare('UPDATE sites SET custom_domain = ? WHERE uuid = ?').run(clean, req.params.uuid);
+    } catch (e) {
+      if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That domain is already connected to another site' });
+      return res.status(500).json({ error: 'Could not save domain' });
+    }
+    return res.json({
+      domain: clean,
+      isRoot,
+      autoProvisioned: false,
+      records: [{
+        type: isRoot ? 'ALIAS' : 'CNAME',
+        host: isRoot ? '@' : clean.split('.')[0],
+        value: CNAME_TARGET,
+        status: 'PENDING',
+        purpose: 'routing',
+      }],
+    });
+  }
+
   try {
-    db.prepare('UPDATE sites SET custom_domain = ? WHERE uuid = ?').run(clean, req.params.uuid);
-    // Root domains (example.com) can't use CNAME — they need ALIAS/ANAME or a
-    // redirect from the registrar. Subdomains (www.example.com) use CNAME.
-    const isRoot = clean.split('.').length === 2;
-    const host = isRoot ? '@' : clean.split('.')[0];
+    // Replace any domain previously registered for this site so we don't
+    // leave orphaned domains sitting in the Railway project.
+    if (site.railway_domain_id) {
+      try { await railwayDeleteDomain(site.railway_domain_id); } catch (_) {}
+      clearCachedDomainStatus(site.railway_domain_id);
+    }
+
+    const rw = await railwayAddDomain(clean);
+    // A freshly registered domain must never report a previous domain's status
+    clearCachedDomainStatus(rw.id);
+
+    db.prepare('UPDATE sites SET custom_domain = ?, railway_domain_id = ? WHERE uuid = ?')
+      .run(clean, rw.id, req.params.uuid);
+
     res.json({
       domain: clean,
-      dnsTarget: CNAME_TARGET,
-      recordType: isRoot ? 'ALIAS' : 'CNAME',
-      host,
-      isRoot
+      isRoot,
+      autoProvisioned: true,
+      records: formatDnsRecords(rw),
     });
   } catch (e) {
-    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That domain is already connected to another site' });
-    res.status(500).json({ error: 'Could not set domain' });
+    if (String(e.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'That domain is already connected to another site' });
+    }
+    console.error('Railway domain error:', e.message);
+    res.status(502).json({ error: e.message || 'Could not register the domain. Please try again.' });
   }
 });
 
@@ -377,6 +569,32 @@ app.get('/api/domain/dns-check', requireAuth, async (req, res) => {
   const { domain } = req.query;
   if (!domain) return res.status(400).json({ error: 'Domain required' });
   try {
+    // Prefer Railway's own view — it's authoritative about whether the domain
+    // is verified and whether the certificate has been issued.
+    const site = db.prepare('SELECT railway_domain_id FROM sites WHERE custom_domain = ?').get(domain);
+    if (RAILWAY_READY && site?.railway_domain_id) {
+      const cached = getCachedDomainStatus(site.railway_domain_id);
+      const rw = cached || await railwayDomainStatus(site.railway_domain_id);
+      if (!cached) setCachedDomainStatus(site.railway_domain_id, rw);
+
+      const records = formatDnsRecords(rw);
+      const certStatus = rw?.status?.certificateStatus || 'PENDING';
+      // Routing records are the ones Railway reports a real status for.
+      const routing = records.filter(r => r.purpose === 'routing');
+      const routingValid = routing.length > 0 && routing.every(r => r.status === 'VALID');
+      return res.json({
+        domain,
+        source: 'railway',
+        records,
+        certificateStatus: certStatus,
+        pointed: routingValid,
+        // An issued certificate is the definitive "this domain works" signal
+        live: certStatus === 'ISSUED',
+        cached: Boolean(cached),
+      });
+    }
+
+    // Fallback: plain DNS lookup when Railway isn't wired up
     let cnames = [];
     let aRecords = [];
     try { cnames = await dns.resolveCname(domain); } catch(_) {}
@@ -384,10 +602,8 @@ app.get('/api/domain/dns-check', requireAuth, async (req, res) => {
     const pointed = cnames.some(c =>
       c.includes(APP_DOMAIN) || c.includes('railway.app') || c.includes(CNAME_TARGET)
     );
-    // Some registrars flatten ALIAS records to A records — if any A record
-    // resolves, DNS is at least configured (we just can't confirm the target).
     const hasRecords = cnames.length > 0 || aRecords.length > 0;
-    res.json({ domain, cnames, aRecords, pointed, hasRecords, target: CNAME_TARGET });
+    res.json({ domain, source: 'dns', cnames, aRecords, pointed, hasRecords, target: CNAME_TARGET });
   } catch (e) {
     res.status(500).json({ error: 'DNS lookup failed', detail: e.message });
   }
