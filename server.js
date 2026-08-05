@@ -45,6 +45,9 @@ if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 // ── DATABASE ───────────────────────────────────────────────────────────────────
 const db = new Database(path.join(__dirname, 'sitesnap.db'));
+// Disable FK enforcement — Railway wipes SQLite on redeploy, so JWT user_ids
+// may not exist in the fresh DB. We trust the JWT for auth instead.
+db.pragma('foreign_keys = OFF');
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,8 +137,20 @@ app.use(express.static(path.join(__dirname, 'public')));
 function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Invalid or expired token' }); }
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    // Railway wipes SQLite on redeploy — if the user row is gone, restore it
+    // from the JWT so plan lookups and FK-adjacent logic keep working.
+    const exists = db.prepare('SELECT id FROM users WHERE id = ?').get(req.user.id);
+    if (!exists) {
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, email, password_hash, plan) VALUES (?, ?, 'restored', 'free')"
+      ).run(req.user.id, req.user.email);
+    }
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
 }
 
 function requirePlan(plan) {
