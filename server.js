@@ -3,7 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const dns = require('dns').promises;
 const multer = require('multer');
-const Database = require('better-sqlite3');
+// better-sqlite3 is a native module and only needed for the SQLite fallback —
+// required lazily so a Postgres deploy never depends on it compiling.
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
@@ -203,41 +204,140 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 // ── DATABASE ───────────────────────────────────────────────────────────────────
-const db = new Database(path.join(__dirname, 'sitesnap.db'));
-// Disable FK enforcement — Railway wipes SQLite on redeploy, so JWT user_ids
-// may not exist in the fresh DB. We trust the JWT for auth instead.
-db.pragma('foreign_keys = OFF');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    plan TEXT DEFAULT 'free',
-    stripe_customer_id TEXT,
-    stripe_subscription_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS sites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    uuid TEXT UNIQUE NOT NULL,
-    user_id INTEGER,
-    data TEXT NOT NULL,
-    subdomain TEXT UNIQUE,
-    custom_domain TEXT UNIQUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-`);
-// Safe migrations for existing databases
-[
-  "ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'",
-  "ALTER TABLE users ADD COLUMN stripe_customer_id TEXT",
-  "ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT",
-  "ALTER TABLE sites ADD COLUMN subdomain TEXT",
-  "ALTER TABLE sites ADD COLUMN custom_domain TEXT",
-  // Railway's ID for the custom domain, so we can check status and clean up
-  "ALTER TABLE sites ADD COLUMN railway_domain_id TEXT",
-].forEach(sql => { try { db.exec(sql); } catch (_) {} });
+// Two drivers behind one async API. Postgres is used whenever DATABASE_URL is
+// present (Railway sets it automatically once a Postgres service is attached);
+// otherwise we fall back to SQLite for local development.
+//
+// This matters because Railway's filesystem is ephemeral: with SQLite, every
+// redeploy silently destroys every saved site. Postgres is a separate service,
+// so the data survives deploys.
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const USE_PG = Boolean(DATABASE_URL);
+
+let pgPool = null;
+let sqliteDb = null;
+
+if (USE_PG) {
+  const { Pool } = require('pg');
+  pgPool = new Pool({
+    connectionString: DATABASE_URL,
+    max: 5,
+    // Railway's internal network doesn't present a public CA
+    ssl: /localhost|127\.0\.0\.1|railway\.internal/.test(DATABASE_URL)
+      ? false
+      : { rejectUnauthorized: false },
+  });
+  pgPool.on('error', e => console.error('Postgres pool error:', e.message));
+} else {
+  const Database = require('better-sqlite3');
+  sqliteDb = new Database(path.join(__dirname, 'sitesnap.db'));
+  sqliteDb.pragma('foreign_keys = OFF');
+}
+
+// Queries are written with `?` placeholders (SQLite style); Postgres wants $1..$n
+function toPgPlaceholders(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
+
+async function dbGet(sql, ...params) {
+  if (USE_PG) return (await pgPool.query(toPgPlaceholders(sql), params)).rows[0];
+  return sqliteDb.prepare(sql).get(...params);
+}
+
+async function dbAll(sql, ...params) {
+  if (USE_PG) return (await pgPool.query(toPgPlaceholders(sql), params)).rows;
+  return sqliteDb.prepare(sql).all(...params);
+}
+
+async function dbRun(sql, ...params) {
+  if (USE_PG) {
+    const r = await pgPool.query(toPgPlaceholders(sql), params);
+    return { changes: r.rowCount, rows: r.rows };
+  }
+  const r = sqliteDb.prepare(sql).run(...params);
+  return { changes: r.changes, rows: [] };
+}
+
+// Postgres reports unique violations by code; SQLite by message text
+function isUniqueViolation(e) {
+  return e?.code === '23505' || /UNIQUE/i.test(e?.message || '');
+}
+
+// "INSERT OR IGNORE" has no Postgres equivalent — it needs ON CONFLICT
+function insertIgnore(table, cols, placeholders) {
+  return USE_PG
+    ? `INSERT INTO ${table} (${cols}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`
+    : `INSERT OR IGNORE INTO ${table} (${cols}) VALUES (${placeholders})`;
+}
+
+async function initDb() {
+  if (USE_PG) {
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        plan TEXT DEFAULT 'free',
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )`);
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS sites (
+        id SERIAL PRIMARY KEY,
+        uuid TEXT UNIQUE NOT NULL,
+        user_id INTEGER,
+        data TEXT NOT NULL,
+        subdomain TEXT UNIQUE,
+        custom_domain TEXT UNIQUE,
+        railway_domain_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )`);
+    for (const sql of [
+      "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'free'",
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT',
+      'ALTER TABLE sites ADD COLUMN IF NOT EXISTS subdomain TEXT',
+      'ALTER TABLE sites ADD COLUMN IF NOT EXISTS custom_domain TEXT',
+      'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
+    ]) { try { await pgPool.query(sql); } catch (e) { console.warn('migration skipped:', e.message); } }
+    console.log('✓ Using Postgres — site data survives redeploys');
+    return;
+  }
+
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      plan TEXT DEFAULT 'free',
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS sites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT UNIQUE NOT NULL,
+      user_id INTEGER,
+      data TEXT NOT NULL,
+      subdomain TEXT UNIQUE,
+      custom_domain TEXT UNIQUE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
+  [
+    "ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'",
+    'ALTER TABLE users ADD COLUMN stripe_customer_id TEXT',
+    'ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT',
+    'ALTER TABLE sites ADD COLUMN subdomain TEXT',
+    'ALTER TABLE sites ADD COLUMN custom_domain TEXT',
+    'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
+  ].forEach(sql => { try { sqliteDb.exec(sql); } catch (_) {} });
+  console.warn('⚠️  Using SQLite — on an ephemeral host, saved sites are LOST on every redeploy.');
+  console.warn('   Attach a Postgres service so DATABASE_URL is set.');
+}
 
 // ── FILE UPLOAD ────────────────────────────────────────────────────────────────
 const storage = multer.diskStorage({
@@ -264,66 +364,87 @@ app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ── DOMAIN ROUTING (check custom domains & subdomains first) ───────────────────
-app.use((req, res, next) => {
-  const host = req.hostname;
+app.use(async (req, res, next) => {
+  try {
+    const host = req.hostname;
 
-  // Custom domain: any host that isn't our app domain or localhost
-  if (host && !host.endsWith(APP_DOMAIN) && host !== 'localhost' && host !== '127.0.0.1') {
-    const site = db.prepare('SELECT uuid, data FROM sites WHERE custom_domain = ?').get(host);
-    if (site) {
-      const data = JSON.parse(site.data);
-      return res.send(buildWebsite(data, site.uuid, `https://${host}`));
-    }
-  }
-
-  // Subdomain: yourbrand.sitesnap.app
-  const parts = host.split('.');
-  if (parts.length >= 3 || (host.endsWith('localhost') && parts.length >= 2)) {
-    const sub = parts[0];
-    if (sub && sub !== 'www' && sub !== 'app') {
-      const site = db.prepare('SELECT uuid, data FROM sites WHERE subdomain = ?').get(sub);
+    // Custom domain: any host that isn't our app domain or localhost
+    if (host && !host.endsWith(APP_DOMAIN) && host !== 'localhost' && host !== '127.0.0.1') {
+      const site = await dbGet('SELECT uuid, data FROM sites WHERE custom_domain = ?', host);
       if (site) {
         const data = JSON.parse(site.data);
-        return res.send(buildWebsite(data, site.uuid, BASE_URL));
+        return res.send(await buildWebsite(data, site.uuid, `https://${host}`));
       }
     }
-  }
 
-  next();
+    // Subdomain: yourbrand.sitesnap.app
+    const parts = host.split('.');
+    if (parts.length >= 3 || (host.endsWith('localhost') && parts.length >= 2)) {
+      const sub = parts[0];
+      if (sub && sub !== 'www' && sub !== 'app') {
+        const site = await dbGet('SELECT uuid, data FROM sites WHERE subdomain = ?', sub);
+        if (site) {
+          const data = JSON.parse(site.data);
+          return res.send(await buildWebsite(data, site.uuid, BASE_URL));
+        }
+      }
+    }
+
+    next();
+  } catch (e) {
+    next(e);
+  }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── AUTH MIDDLEWARE ────────────────────────────────────────────────────────────
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Authentication required' });
+
   try {
     req.user = jwt.verify(token, JWT_SECRET);
-    // Railway wipes SQLite on redeploy — if the user row is gone, restore it
-    // from the JWT so plan lookups and FK-adjacent logic keep working.
-    const exists = db.prepare('SELECT id, plan FROM users WHERE id = ?').get(req.user.id);
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  try {
+    // On an ephemeral host the user row can vanish — restore it from the JWT so
+    // plan lookups keep working. (Harmless once Postgres makes data durable.)
+    const exists = await dbGet('SELECT id, plan FROM users WHERE id = ?', req.user.id);
     if (!exists) {
-      // DB was wiped — restore user from JWT, preserving their paid plan if present
-      db.prepare(
-        "INSERT OR IGNORE INTO users (id, email, password_hash, plan) VALUES (?, ?, 'restored', ?)"
-      ).run(req.user.id, req.user.email, req.user.plan || 'free');
+      await dbRun(
+        insertIgnore('users', 'id, email, password_hash, plan', "?, ?, 'restored', ?"),
+        req.user.id, req.user.email, req.user.plan || 'free'
+      );
+      // Inserting an explicit id leaves Postgres' sequence behind, which would
+      // collide on the next natural signup — push it past the highest id.
+      if (USE_PG) {
+        await dbRun(
+          "SELECT setval(pg_get_serial_sequence('users','id'), GREATEST((SELECT MAX(id) FROM users), 1))"
+        );
+      }
     } else if (req.user.plan && req.user.plan !== 'free' && exists.plan === 'free') {
       // JWT carries a paid plan but DB shows free (post-redeploy wipe) — restore it
-      db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(req.user.plan, req.user.id);
+      await dbRun('UPDATE users SET plan = ? WHERE id = ?', req.user.plan, req.user.id);
     }
     next();
-  } catch {
-    res.status(401).json({ error: 'Invalid or expired token' });
+  } catch (e) {
+    next(e);
   }
 }
 
 function requirePlan(plan) {
   const order = ['free', 'starter', 'pro'];
-  return (req, res, next) => {
-    const user = db.prepare('SELECT plan FROM users WHERE id = ?').get(req.user.id);
-    if (order.indexOf(user?.plan || 'free') >= order.indexOf(plan)) return next();
-    res.status(403).json({ error: `This feature requires the ${plan} plan.`, required: plan });
+  return async (req, res, next) => {
+    try {
+      const user = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
+      if (order.indexOf(user?.plan || 'free') >= order.indexOf(plan)) return next();
+      res.status(403).json({ error: `This feature requires the ${plan} plan.`, required: plan });
+    } catch (e) {
+      next(e);
+    }
   };
 }
 
@@ -334,20 +455,23 @@ app.post('/api/auth/register', async (req, res) => {
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   try {
     const hash = await bcrypt.hash(password, 10);
-    const result = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(
+    // RETURNING works in both Postgres and modern SQLite, so the new id comes
+    // back the same way regardless of driver.
+    const row = await dbGet(
+      'INSERT INTO users (email, password_hash) VALUES (?, ?) RETURNING id',
       email.toLowerCase().trim(), hash
     );
-    const token = jwt.sign({ id: result.lastInsertRowid, email: email.toLowerCase(), plan: 'free' }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: row.id, email: email.toLowerCase(), plan: 'free' }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, email: email.toLowerCase(), plan: 'free' });
   } catch (e) {
-    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That email is already registered' });
+    if (isUniqueViolation(e)) return res.status(409).json({ error: 'That email is already registered' });
     res.status(500).json({ error: 'Registration failed. Please try again.' });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email?.toLowerCase().trim());
+  const user = await dbGet('SELECT * FROM users WHERE email = ?', email?.toLowerCase().trim());
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
@@ -355,8 +479,8 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, email: user.email, plan: user.plan || 'free' });
 });
 
-app.get('/api/me', requireAuth, (req, res) => {
-  const user = db.prepare('SELECT id, email, plan, created_at FROM users WHERE id = ?').get(req.user.id);
+app.get('/api/me', requireAuth, async (req, res) => {
+  const user = await dbGet('SELECT id, email, plan, created_at FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
 });
@@ -364,8 +488,16 @@ app.get('/api/me', requireAuth, (req, res) => {
 // ── DEPLOYMENT DIAGNOSTICS ─────────────────────────────────────────────────────
 // Reports which Railway project/service is serving this app and whether storage
 // is durable. Read-only, no secrets: token presence is reported as a boolean.
-app.get('/api/_diag', (req, res) => {
+app.get('/api/_diag', async (req, res) => {
   const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
+
+  // Postgres returns COUNT as a string, SQLite as a number — normalise both
+  let siteCount = null;
+  try {
+    const row = await dbGet('SELECT COUNT(*) AS c FROM sites');
+    siteCount = row?.c == null ? null : Number(row.c);
+  } catch { siteCount = null; }
+
   res.json({
     railway: {
       projectName: process.env.RAILWAY_PROJECT_NAME || null,
@@ -385,10 +517,8 @@ app.get('/api/_diag', (req, res) => {
       volumeMountPath: volumePath,
       postgresConfigured: Boolean(process.env.DATABASE_URL),
       durable: Boolean(volumePath || process.env.DATABASE_URL),
-      siteCount: (() => {
-        try { return db.prepare('SELECT COUNT(*) c FROM sites').get()?.c ?? null; }
-        catch { return null; }
-      })(),
+      driver: USE_PG ? 'postgres' : 'sqlite',
+      siteCount,
     },
     features: {
       railwayDomainApi: RAILWAY_READY,
@@ -427,13 +557,11 @@ app.post('/api/sync-plan', requireAuth, async (req, res) => {
     }
 
     if (subscriptionId && customerId) {
-      db.prepare('UPDATE users SET plan = ?, stripe_customer_id = COALESCE(stripe_customer_id, ?), stripe_subscription_id = ? WHERE id = ?')
-        .run(plan, customerId, subscriptionId, req.user.id);
+      await dbRun('UPDATE users SET plan = ?, stripe_customer_id = COALESCE(stripe_customer_id, ?), stripe_subscription_id = ? WHERE id = ?', plan, customerId, subscriptionId, req.user.id);
     } else if (customerId) {
-      db.prepare('UPDATE users SET plan = ?, stripe_customer_id = COALESCE(stripe_customer_id, ?) WHERE id = ?')
-        .run(plan, customerId, req.user.id);
+      await dbRun('UPDATE users SET plan = ?, stripe_customer_id = COALESCE(stripe_customer_id, ?) WHERE id = ?', plan, customerId, req.user.id);
     } else {
-      db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.user.id);
+      await dbRun('UPDATE users SET plan = ? WHERE id = ?', plan, req.user.id);
     }
 
     // Issue a new JWT with plan baked in so future redeployments preserve it
@@ -469,66 +597,64 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 });
 
 // ── SITES ──────────────────────────────────────────────────────────────────────
-app.post('/api/sites', requireAuth, (req, res) => {
+app.post('/api/sites', requireAuth, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Site data is required' });
-  const user = db.prepare('SELECT plan FROM users WHERE id = ?').get(req.user.id);
+  const user = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
   const plan = user?.plan || 'free';
   const uuid = uuidv4();
-  db.prepare('INSERT INTO sites (uuid, user_id, data) VALUES (?, ?, ?)').run(uuid, req.user.id, JSON.stringify(data));
+  await dbRun('INSERT INTO sites (uuid, user_id, data) VALUES (?, ?, ?)', uuid, req.user.id, JSON.stringify(data));
   res.json({ uuid, url: `${BASE_URL}/preview/${uuid}`, plan });
 });
 
 // ── UPDATE SITE ────────────────────────────────────────────────────────────────
-app.put('/api/sites/:uuid', requireAuth, (req, res) => {
+app.put('/api/sites/:uuid', requireAuth, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Site data is required' });
-  const site = db.prepare('SELECT user_id FROM sites WHERE uuid = ?').get(req.params.uuid);
+  const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site) return res.status(404).json({ error: 'Site not found' });
   if (site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
-  db.prepare('UPDATE sites SET data = ? WHERE uuid = ?').run(JSON.stringify(data), req.params.uuid);
+  await dbRun('UPDATE sites SET data = ? WHERE uuid = ?', JSON.stringify(data), req.params.uuid);
   res.json({ uuid: req.params.uuid, url: `${BASE_URL}/preview/${req.params.uuid}` });
 });
 
-app.get('/api/sites', requireAuth, (req, res) => {
-  const rows = db.prepare(
-    'SELECT uuid, subdomain, custom_domain, created_at, data FROM sites WHERE user_id = ? ORDER BY created_at DESC'
-  ).all(req.user.id);
+app.get('/api/sites', requireAuth, async (req, res) => {
+  const rows = await dbAll('SELECT uuid, subdomain, custom_domain, created_at, data FROM sites WHERE user_id = ? ORDER BY created_at DESC', req.user.id);
   res.json(rows.map(r => {
     const d = JSON.parse(r.data);
     return { uuid: r.uuid, subdomain: r.subdomain, customDomain: r.custom_domain, created_at: r.created_at, bizName: d.bizName, industry: d.industry, designStyle: d.designStyle };
   }));
 });
 
-app.get('/api/sites/:uuid', (req, res) => {
-  const row = db.prepare('SELECT data FROM sites WHERE uuid = ?').get(req.params.uuid);
+app.get('/api/sites/:uuid', async (req, res) => {
+  const row = await dbGet('SELECT data FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).json({ error: 'Site not found' });
   res.json(JSON.parse(row.data));
 });
 
-app.delete('/api/sites/:uuid', requireAuth, (req, res) => {
-  const row = db.prepare('SELECT user_id FROM sites WHERE uuid = ?').get(req.params.uuid);
+app.delete('/api/sites/:uuid', requireAuth, async (req, res) => {
+  const row = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
-  db.prepare('DELETE FROM sites WHERE uuid = ?').run(req.params.uuid);
+  await dbRun('DELETE FROM sites WHERE uuid = ?', req.params.uuid);
   res.json({ ok: true });
 });
 
 // ── SUBDOMAIN (Starter+) ───────────────────────────────────────────────────────
-app.post('/api/sites/:uuid/subdomain', requireAuth, requirePlan('starter'), (req, res) => {
+app.post('/api/sites/:uuid/subdomain', requireAuth, requirePlan('starter'), async (req, res) => {
   const { subdomain } = req.body || {};
   if (!subdomain) return res.status(400).json({ error: 'Subdomain is required' });
   const clean = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
   if (!clean) return res.status(400).json({ error: 'Invalid subdomain' });
 
-  const site = db.prepare('SELECT user_id FROM sites WHERE uuid = ?').get(req.params.uuid);
+  const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site || site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
 
   try {
-    db.prepare('UPDATE sites SET subdomain = ? WHERE uuid = ?').run(clean, req.params.uuid);
+    await dbRun('UPDATE sites SET subdomain = ? WHERE uuid = ?', clean, req.params.uuid);
     res.json({ subdomain: clean, url: `https://${clean}.${APP_DOMAIN}` });
   } catch (e) {
-    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That subdomain is already taken' });
+    if (isUniqueViolation(e)) return res.status(409).json({ error: 'That subdomain is already taken' });
     res.status(500).json({ error: 'Could not set subdomain' });
   }
 });
@@ -543,7 +669,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     return res.status(400).json({ error: 'That doesn\'t look like a valid domain. Example: www.yourbrand.com' });
   }
 
-  const site = db.prepare('SELECT user_id, railway_domain_id FROM sites WHERE uuid = ?').get(req.params.uuid);
+  const site = await dbGet('SELECT user_id, railway_domain_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site || site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
 
   // Root domains can't use CNAME — flagged so the guide can warn about ALIAS/ANAME
@@ -553,9 +679,9 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
   // The domain won't actually route until someone adds it in the Railway dashboard.
   if (!RAILWAY_READY) {
     try {
-      db.prepare('UPDATE sites SET custom_domain = ? WHERE uuid = ?').run(clean, req.params.uuid);
+      await dbRun('UPDATE sites SET custom_domain = ? WHERE uuid = ?', clean, req.params.uuid);
     } catch (e) {
-      if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That domain is already connected to another site' });
+      if (isUniqueViolation(e)) return res.status(409).json({ error: 'That domain is already connected to another site' });
       return res.status(500).json({ error: 'Could not save domain' });
     }
     return res.json({
@@ -584,8 +710,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     // A freshly registered domain must never report a previous domain's status
     clearCachedDomainStatus(rw.id);
 
-    db.prepare('UPDATE sites SET custom_domain = ?, railway_domain_id = ? WHERE uuid = ?')
-      .run(clean, rw.id, req.params.uuid);
+    await dbRun('UPDATE sites SET custom_domain = ?, railway_domain_id = ? WHERE uuid = ?', clean, rw.id, req.params.uuid);
 
     res.json({
       domain: clean,
@@ -594,7 +719,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
       records: formatDnsRecords(rw),
     });
   } catch (e) {
-    if (String(e.message).includes('UNIQUE')) {
+    if (isUniqueViolation(e)) {
       return res.status(409).json({ error: 'That domain is already connected to another site' });
     }
     console.error('Railway domain error:', e.message);
@@ -603,10 +728,10 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
 });
 
 // Caddy on-demand TLS: called by Caddy before issuing a cert for a custom domain
-app.get('/api/domain/verify', (req, res) => {
+app.get('/api/domain/verify', async (req, res) => {
   const domain = req.query.domain;
   if (!domain) return res.status(400).end();
-  const site = db.prepare('SELECT id FROM sites WHERE custom_domain = ?').get(domain);
+  const site = await dbGet('SELECT id FROM sites WHERE custom_domain = ?', domain);
   site ? res.status(200).end() : res.status(404).end();
 });
 
@@ -617,7 +742,7 @@ app.get('/api/domain/dns-check', requireAuth, async (req, res) => {
   try {
     // Prefer Railway's own view — it's authoritative about whether the domain
     // is verified and whether the certificate has been issued.
-    const site = db.prepare('SELECT railway_domain_id FROM sites WHERE custom_domain = ?').get(domain);
+    const site = await dbGet('SELECT railway_domain_id FROM sites WHERE custom_domain = ?', domain);
     if (RAILWAY_READY && site?.railway_domain_id) {
       const cached = getCachedDomainStatus(site.railway_domain_id);
       const rw = cached || await railwayDomainStatus(site.railway_domain_id);
@@ -660,7 +785,7 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
   const planKey = req.params.plan;
   if (!PLANS[planKey]) return res.status(400).json({ error: 'Unknown plan' });
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = await dbGet('SELECT * FROM users WHERE id = ?', req.user.id);
   const plan = PLANS[planKey];
 
   try {
@@ -669,7 +794,7 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
     if (!customerId) {
       const customer = await stripe.customers.create({ email: user.email, metadata: { userId: String(user.id) } });
       customerId = customer.id;
-      db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?').run(customerId, user.id);
+      await dbRun('UPDATE users SET stripe_customer_id = ? WHERE id = ?', customerId, user.id);
     }
 
     const priceData = {
@@ -697,7 +822,7 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
 
 // Billing portal (manage subscription)
 app.post('/api/billing/portal', requireAuth, async (req, res) => {
-  const user = db.prepare('SELECT stripe_customer_id FROM users WHERE id = ?').get(req.user.id);
+  const user = await dbGet('SELECT stripe_customer_id FROM users WHERE id = ?', req.user.id);
   if (!user?.stripe_customer_id) return res.status(400).json({ error: 'No billing account found' });
   try {
     const session = await stripe.billingPortal.sessions.create({
@@ -731,9 +856,9 @@ async function handleStripeWebhook(req, res) {
       const userId = parseInt(session.metadata?.userId);
       const plan = session.metadata?.plan;
       if (userId && plan) {
-        db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, userId);
+        await dbRun('UPDATE users SET plan = ? WHERE id = ?', plan, userId);
         if (session.subscription) {
-          db.prepare('UPDATE users SET stripe_subscription_id = ? WHERE id = ?').run(session.subscription, userId);
+          await dbRun('UPDATE users SET stripe_subscription_id = ? WHERE id = ?', session.subscription, userId);
         }
         console.log(`✓ User ${userId} upgraded to ${plan}`);
       }
@@ -741,7 +866,7 @@ async function handleStripeWebhook(req, res) {
     }
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
-      db.prepare("UPDATE users SET plan = 'free', stripe_subscription_id = NULL WHERE stripe_subscription_id = ?").run(sub.id);
+      await dbRun("UPDATE users SET plan = 'free', stripe_subscription_id = NULL WHERE stripe_subscription_id = ?", sub.id);
       console.log(`User downgraded — subscription cancelled: ${sub.id}`);
       break;
     }
@@ -754,10 +879,10 @@ async function handleStripeWebhook(req, res) {
 }
 
 // ── PREVIEW ROUTE ──────────────────────────────────────────────────────────────
-app.get('/preview/:uuid', (req, res) => {
-  const row = db.prepare('SELECT data FROM sites WHERE uuid = ?').get(req.params.uuid);
+app.get('/preview/:uuid', async (req, res) => {
+  const row = await dbGet('SELECT data FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).send(notFoundHtml());
-  res.send(buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL));
+  res.send(await buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL));
 });
 
 // ── BILLING PAGES ──────────────────────────────────────────────────────────────
@@ -801,7 +926,7 @@ h1{font-size:18px;color:#1a1a2e;margin-bottom:8px;}p{color:#6b7280;font-size:14p
 }
 
 // ── WEBSITE BUILDER ────────────────────────────────────────────────────────────
-function buildWebsite(s, uuid, baseUrl) {
+async function buildWebsite(s, uuid, baseUrl) {
   const name = s.bizName || 'Your Business';
   const tagline = s.tagline || `Serving ${s.industry || 'clients'} with passion and purpose`;
   const audience = s.audience || 'people who value quality';
@@ -812,10 +937,10 @@ function buildWebsite(s, uuid, baseUrl) {
   const f = getTheme(s);
 
   // Check if this site has badge removed (Starter+ user)
-  const siteRow = db.prepare('SELECT user_id FROM sites WHERE uuid = ?').get(uuid);
+  const siteRow = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', uuid);
   let showBadge = true;
   if (siteRow?.user_id) {
-    const user = db.prepare('SELECT plan FROM users WHERE id = ?').get(siteRow.user_id);
+    const user = await dbGet('SELECT plan FROM users WHERE id = ?', siteRow.user_id);
     showBadge = !user || user.plan === 'free';
   }
 
@@ -987,7 +1112,15 @@ function getTheme(s) {
 }
 
 // ── START ──────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n🚀 SiteSnap running at http://localhost:${PORT}`);
-  if (!process.env.STRIPE_SECRET_KEY) console.warn('   ⚠️  STRIPE_SECRET_KEY not set — payments will not work');
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`\n🚀 SiteSnap running at http://localhost:${PORT}`);
+      if (!process.env.STRIPE_SECRET_KEY) console.warn('   ⚠️  STRIPE_SECRET_KEY not set — payments will not work');
+    });
+  })
+  .catch(e => {
+    // Starting without a working database would silently serve broken pages
+    console.error('Could not initialise the database:', e.message);
+    process.exit(1);
+  });
