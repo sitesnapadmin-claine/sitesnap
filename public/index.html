@@ -598,6 +598,11 @@
         <div class="domain-section" id="domain-section" style="display:none;">
           <div class="domain-section-title" id="domain-section-title">🌐 Claim your custom address</div>
           <div id="domain-section-content"></div>
+          <div id="restore-plan-wrap" style="display:none;margin-top:10px;text-align:center;">
+            <button onclick="syncPlan()" style="background:none;border:none;color:#6C47FF;font-size:12px;cursor:pointer;text-decoration:underline;padding:0;">
+              Already on a paid plan? Restore your access →
+            </button>
+          </div>
         </div>
       </div>
       <iframe id="preview-frame" scrolling="yes"></iframe>
@@ -1406,6 +1411,40 @@ async function openBillingPortal() {
 }
 
 /* ═══════════════════════════════════════════════════
+   RESTORE PLAN
+═══════════════════════════════════════════════════ */
+async function syncPlan() {
+  const btn = document.querySelector('#restore-plan-wrap button');
+  if (btn) { btn.textContent = 'Checking Stripe…'; btn.disabled = true; }
+  try {
+    const res = await fetch('/api/sync-plan', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+
+    // Update auth state with new plan + token
+    authPlan = data.plan;
+    authToken = data.token;
+    localStorage.setItem('ss_plan', authPlan);
+    localStorage.setItem('ss_token', authToken);
+
+    if (data.plan === 'free') {
+      if (btn) { btn.textContent = 'No active subscription found'; btn.disabled = false; }
+    } else {
+      // Re-render the domain section with the restored plan
+      const uuid = currentSiteUuid;
+      if (uuid) renderDomainSection(data.plan, uuid);
+      renderAuthArea();
+    }
+  } catch (e) {
+    if (btn) { btn.textContent = 'Error — try again'; btn.disabled = false; }
+    console.error('syncPlan error:', e);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
    DOMAIN SETUP
 ═══════════════════════════════════════════════════ */
 function renderDomainSection(plan, uuid) {
@@ -1413,6 +1452,9 @@ function renderDomainSection(plan, uuid) {
   const content = document.getElementById('domain-section-content');
   const title = document.getElementById('domain-section-title');
   section.style.display = 'block';
+  // Show restore-plan link only for free users (in case they already paid)
+  const restoreWrap = document.getElementById('restore-plan-wrap');
+  if (restoreWrap) restoreWrap.style.display = plan === 'free' ? 'block' : 'none';
 
   if (plan === 'free') {
     // Tease subdomain — locked
