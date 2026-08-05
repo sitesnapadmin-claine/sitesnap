@@ -31,6 +31,9 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'sitesnap-dev-secret-change-in-production';
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'sitesnap.app';
+// Where customers point their CNAME records. Must be the host that actually
+// serves the app (Railway/Render/etc), NOT the marketing domain.
+const CNAME_TARGET = process.env.CNAME_TARGET || 'sitesnap-production-b50b.up.railway.app';
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 
 // ── PLANS ──────────────────────────────────────────────────────────────────────
@@ -344,7 +347,17 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), (req, res) 
 
   try {
     db.prepare('UPDATE sites SET custom_domain = ? WHERE uuid = ?').run(clean, req.params.uuid);
-    res.json({ domain: clean, dnsTarget: APP_DOMAIN });
+    // Root domains (example.com) can't use CNAME — they need ALIAS/ANAME or a
+    // redirect from the registrar. Subdomains (www.example.com) use CNAME.
+    const isRoot = clean.split('.').length === 2;
+    const host = isRoot ? '@' : clean.split('.')[0];
+    res.json({
+      domain: clean,
+      dnsTarget: CNAME_TARGET,
+      recordType: isRoot ? 'ALIAS' : 'CNAME',
+      host,
+      isRoot
+    });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That domain is already connected to another site' });
     res.status(500).json({ error: 'Could not set domain' });
@@ -365,9 +378,16 @@ app.get('/api/domain/dns-check', requireAuth, async (req, res) => {
   if (!domain) return res.status(400).json({ error: 'Domain required' });
   try {
     let cnames = [];
+    let aRecords = [];
     try { cnames = await dns.resolveCname(domain); } catch(_) {}
-    const pointed = cnames.some(c => c.includes(APP_DOMAIN) || c.includes('railway.app') || c.includes('up.railway.app'));
-    res.json({ domain, cnames, pointed, target: APP_DOMAIN });
+    try { aRecords = await dns.resolve4(domain); } catch(_) {}
+    const pointed = cnames.some(c =>
+      c.includes(APP_DOMAIN) || c.includes('railway.app') || c.includes(CNAME_TARGET)
+    );
+    // Some registrars flatten ALIAS records to A records — if any A record
+    // resolves, DNS is at least configured (we just can't confirm the target).
+    const hasRecords = cnames.length > 0 || aRecords.length > 0;
+    res.json({ domain, cnames, aRecords, pointed, hasRecords, target: CNAME_TARGET });
   } catch (e) {
     res.status(500).json({ error: 'DNS lookup failed', detail: e.message });
   }
