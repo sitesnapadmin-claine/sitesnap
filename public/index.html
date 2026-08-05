@@ -73,7 +73,8 @@
   .error-msg.show { display:block; }
 
   /* ── COLOR ─────────────────────────────────── */
-  .color-pair { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .color-pair { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:16px; }
+  .color-blend-tip { margin-top:12px; padding:12px 14px; background:var(--bg-soft); border-radius:10px; border-left:3px solid var(--brand); font-size:13px; color:var(--text-muted); line-height:1.6; }
   .color-field { display:flex; flex-direction:column; gap:6px; }
   .color-preview-row { display:flex; align-items:center; gap:10px; }
   input[type="color"] { width:48px; height:48px; border:2px solid var(--border); border-radius:10px; cursor:pointer; padding:2px; background:white; flex-shrink:0; }
@@ -362,7 +363,7 @@
             <div id="state-logo">
               <div class="upload-icon">🖼️</div>
               <div class="upload-label">Logo</div>
-              <div class="upload-sub">PNG or SVG works best</div>
+              <div class="upload-sub">PNG/SVG · 200×60px ideal</div>
             </div>
           </div>
           <!-- Hero image -->
@@ -372,7 +373,7 @@
             <div id="state-hero">
               <div class="upload-icon">🏔️</div>
               <div class="upload-label">Hero Photo</div>
-              <div class="upload-sub">Homepage banner image</div>
+              <div class="upload-sub">Landscape · 1200×900px ideal</div>
             </div>
           </div>
           <!-- About image -->
@@ -382,7 +383,7 @@
             <div id="state-about">
               <div class="upload-icon">👤</div>
               <div class="upload-label">About Photo</div>
-              <div class="upload-sub">You or your team</div>
+              <div class="upload-sub">Portrait or square · 800×800px ideal</div>
             </div>
           </div>
         </div>
@@ -394,20 +395,28 @@
         <label>Brand Colors</label>
         <div class="color-pair">
           <div class="color-field">
-            <label style="font-size:12px;color:var(--text-muted);">Primary Color</label>
+            <label style="font-size:12px;color:var(--text-muted);">Primary / Dark</label>
             <div class="color-preview-row">
               <input type="color" id="color-primary" value="#6C47FF" oninput="syncHex('primary')">
               <input type="text" class="color-hex" id="hex-primary" value="#6C47FF" maxlength="7" oninput="syncColor('primary')">
             </div>
           </div>
           <div class="color-field">
-            <label style="font-size:12px;color:var(--text-muted);">Accent Color</label>
+            <label style="font-size:12px;color:var(--text-muted);">Accent / Light</label>
             <div class="color-preview-row">
               <input type="color" id="color-accent" value="#FF6B6B" oninput="syncHex('accent')">
               <input type="text" class="color-hex" id="hex-accent" value="#FF6B6B" maxlength="7" oninput="syncColor('accent')">
             </div>
           </div>
+          <div class="color-field">
+            <label style="font-size:12px;color:var(--text-muted);">Button Color</label>
+            <div class="color-preview-row">
+              <input type="color" id="color-button" value="#6C47FF" oninput="syncHex('button')">
+              <input type="text" class="color-hex" id="hex-button" value="#6C47FF" maxlength="7" oninput="syncColor('button')">
+            </div>
+          </div>
         </div>
+        <div class="color-blend-tip">💡 <strong>Color tip:</strong> Use your dark/primary tone for ~70% of the design, your light/accent for ~20%, and save the button color for CTAs and highlights only — around 10%.</div>
       </div>
 
       <!-- Font -->
@@ -621,7 +630,7 @@
 const state = {
   bizName:'', tagline:'', industry:'', location:'',
   logoUrl:null, heroUrl:null, aboutUrl:null,
-  colorPrimary:'#6C47FF', colorAccent:'#FF6B6B',
+  colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'',
   fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call',
   designStyle:null
 };
@@ -774,7 +783,7 @@ function startWizard() {
 
 function startOver() {
   // Reset state
-  Object.assign(state, { bizName:'', tagline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', designStyle:null });
+  Object.assign(state, { bizName:'', tagline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', designStyle:null });
   document.getElementById('share-box').classList.remove('show');
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('btn-share').textContent = '🔗 Save & Share';
@@ -860,6 +869,7 @@ function collectStep(step) {
   if (step === 2) {
     state.colorPrimary = document.getElementById('color-primary').value;
     state.colorAccent = document.getElementById('color-accent').value;
+    state.colorButton = document.getElementById('color-button').value;
     const fontEl = document.querySelector('input[name="font"]:checked');
     if (fontEl) state.fontStyle = fontEl.value;
   }
@@ -976,8 +986,8 @@ function buildPreviewHtml(s) {
   const logoHtml = s.logoUrl
     ? `<img src="${s.logoUrl}" alt="${name} logo" style="max-height:50px;max-width:160px;object-fit:contain;">`
     : `<div style="font-size:19px;font-weight:900;letter-spacing:-0.5px;">${name}</div>`;
-  const heroImg = s.heroUrl ? `<img src="${s.heroUrl}" style="width:100%;height:100%;object-fit:cover;" alt="Hero">` : '<span style="font-size:56px;">🌟</span>';
-  const aboutImg = s.aboutUrl ? `<img src="${s.aboutUrl}" style="width:100%;height:100%;object-fit:cover;" alt="About">` : '<span style="font-size:60px;">✨</span>';
+  const heroImg = s.heroUrl ? `<img src="${s.heroUrl}" style="width:100%;height:100%;object-fit:cover;object-position:center;" alt="Hero">` : '<span style="font-size:56px;">🌟</span>';
+  const aboutImg = s.aboutUrl ? `<img src="${s.aboutUrl}" style="width:100%;height:100%;object-fit:cover;object-position:center;" alt="About">` : '<span style="font-size:60px;">✨</span>';
 
   const theme = getClientTheme(s);
 
@@ -986,13 +996,13 @@ function buildPreviewHtml(s) {
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}body{font-family:${theme.bodyFont};background:${theme.bg};color:${theme.text};}
 nav{background:${theme.navBg};padding:16px 40px;display:flex;align-items:center;justify-content:space-between;border-bottom:${theme.navBorder};}
-.nc{padding:9px 22px;background:${theme.primary};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:14px;font-weight:700;border:none;}
+.nc{padding:9px 22px;background:${theme.btnBg};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:14px;font-weight:700;border:none;}
 .hero{padding:72px 40px;background:${theme.heroBg};display:grid;grid-template-columns:1fr 0.85fr;gap:56px;align-items:center;}
 .hi{border-radius:${theme.imgRadius};overflow:hidden;aspect-ratio:4/3;background:${theme.heroImgBg};display:flex;align-items:center;justify-content:center;}
 h1{font-family:${theme.headFont};font-size:clamp(28px,4.5vw,52px);font-weight:${theme.heroWeight};color:${theme.heroText};line-height:1.1;margin-bottom:18px;letter-spacing:${theme.heroTracking};}
 h1 em{color:${theme.accent};font-style:normal;}
 .hs{font-size:16px;color:${theme.heroSubText};margin-bottom:28px;}
-.bp{padding:14px 32px;background:${theme.primary};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:15px;font-weight:700;border:none;display:inline-block;}
+.bp{padding:14px 32px;background:${theme.btnBg};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:15px;font-weight:700;border:none;display:inline-block;}
 .tb{padding:16px 40px;background:${theme.trustBg};border-top:${theme.trustBorder};border-bottom:${theme.trustBorder};display:flex;gap:40px;flex-wrap:wrap;justify-content:center;}
 .ti{font-size:13px;font-weight:600;color:${theme.trustText};opacity:0.7;display:flex;align-items:center;gap:6px;}
 .td{width:5px;height:5px;border-radius:50%;background:${theme.accent};}
@@ -1047,10 +1057,10 @@ function heroHeadline(name, industry) {
 }
 
 function getClientTheme(s) {
-  const p = s.colorPrimary || '#6C47FF', a = s.colorAccent || '#FF6B6B', font = s.fontStyle || 'modern', style = s.designStyle || 'light-airy';
+  const p = s.colorPrimary || '#6C47FF', a = s.colorAccent || '#FF6B6B', b = s.colorButton || p, font = s.fontStyle || 'modern', style = s.designStyle || 'light-airy';
   const fm = {modern:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;700;800",bodyFont:"'Inter',sans-serif",heroWeight:800,heroTracking:'-1px'},elegant:{headFont:"'Playfair Display',serif",fontUrl:"Playfair+Display:wght@400;700",bodyFont:"'Inter',sans-serif",heroWeight:700,heroTracking:'-0.5px'},playful:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;800;900",bodyFont:"'Inter',sans-serif",heroWeight:900,heroTracking:'-2px'}};
   const f = fm[font]||fm.modern;
-  const base = {...f,primary:p,accent:a};
+  const base = {...f,primary:p,accent:a,btnBg:b};
   const themes = {
     'light-airy':{...base,bg:'#FAF7F2',text:'#3D2B1F',navBg:'#FFFEF9',navBorder:'1px solid #F0E8DC',navText:'#3D2B1F',heroBg:'#FAF7F2',heroText:'#3D2B1F',heroSubText:'#7B6E65',heroImgBg:'linear-gradient(135deg,#F5E6D3,#EDD5B8)',trustBg:'#F5EFE6',trustBorder:'1px solid #E8D5C4',trustText:'#7B6E65',aboutBg:'#FFFEF9',aboutImgBg:'linear-gradient(135deg,#EDD5B8,#F5E6D3)',featureBg:'#FAF7F2',cardBg:'#FFFEF9',cardRadius:'14px',cardBorder:'1px solid #F0E8DC',ctaSectionBg:'#C4966A',ctaExtra:'',ctaSectionText:'#FFFEF9',ctaSectionSub:'rgba(255,255,255,0.8)',ctaSectionBtn:'#FFFEF9',ctaSectionBtnText:'#3D2B1F',footerBg:'#3D2B1F',footerText:'#FAF7F2',headingColor:'#3D2B1F',subTextColor:'#7B6E65',imgRadius:'18px',btnRadius:'8px',ctaText:'#FFFEF9',feat1:'🌺',feat2:'🤝',feat3:'⭐'},
     'bold-modern':{...base,bg:'#0D0D0D',text:'#FFF',navBg:'#0D0D0D',navBorder:'1px solid #1F1F1F',navText:'#FFF',heroBg:'#0D0D0D',heroText:'#FFF',heroSubText:'#9CA3AF',heroImgBg:`linear-gradient(135deg,${p}33,${a}33)`,trustBg:'#111',trustBorder:'1px solid #1F1F1F',trustText:'#9CA3AF',aboutBg:'#111',aboutImgBg:`linear-gradient(135deg,#1F1F1F,${p}22)`,featureBg:'#0D0D0D',cardBg:'#111',cardRadius:'10px',cardBorder:'1px solid #1F1F1F',ctaSectionBg:`linear-gradient(135deg,${p},${a})`,ctaExtra:'',ctaSectionText:'#FFF',ctaSectionSub:'rgba(255,255,255,0.8)',ctaSectionBtn:'#FFF',ctaSectionBtnText:'#0D0D0D',footerBg:'#000',footerText:'#FFF',headingColor:'#FFF',subTextColor:'#9CA3AF',imgRadius:'10px',btnRadius:'6px',ctaText:'#FFF',feat1:'⚡',feat2:'🛡️',feat3:'🎯'},
@@ -1191,6 +1201,7 @@ async function editSite(uuid) {
       aboutUrl: data.aboutUrl || null,
       colorPrimary: data.colorPrimary || '#6C47FF',
       colorAccent: data.colorAccent || '#FF6B6B',
+      colorButton: data.colorButton || '',
       fontStyle: data.fontStyle || 'modern',
       audience: data.audience || '',
       problem: data.problem || '',
@@ -1212,6 +1223,9 @@ async function editSite(uuid) {
     document.getElementById('hex-primary').value = state.colorPrimary;
     document.getElementById('color-accent').value = state.colorAccent;
     document.getElementById('hex-accent').value = state.colorAccent;
+    const btnColor = state.colorButton || state.colorPrimary;
+    document.getElementById('color-button').value = btnColor;
+    document.getElementById('hex-button').value = btnColor;
     document.getElementById('audience').value = state.audience;
     document.getElementById('problem').value = state.problem;
     document.getElementById('differentiator').value = state.differentiator;
