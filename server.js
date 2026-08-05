@@ -33,13 +33,20 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'sitesnap.app';
 // Where customers point their CNAME records. Must be the host that actually
 // serves the app (Railway/Render/etc), NOT the marketing domain.
-const CNAME_TARGET = process.env.CNAME_TARGET || 'sitesnap-production-b50b.up.railway.app';
+// Railway injects RAILWAY_PUBLIC_DOMAIN, so this stays correct on its own even
+// if the deployment moves — no hardcoded hostname to go stale.
+const CNAME_TARGET =
+  process.env.CNAME_TARGET ||
+  process.env.RAILWAY_PUBLIC_DOMAIN ||
+  'sitesnap-production-b50b.up.railway.app';
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 
 // ── RAILWAY API ────────────────────────────────────────────────────────────────
 // Lets us register customer domains with Railway automatically instead of
 // adding each one by hand in the dashboard. If these aren't set, the app falls
 // back to showing generic manual instructions (see saveCustomDomain).
+// Railway injects PROJECT/ENVIRONMENT/SERVICE ids into every deployment
+// automatically, so the only thing that ever needs setting by hand is the token.
 const RAILWAY_API_TOKEN = process.env.RAILWAY_API_TOKEN || '';
 const RAILWAY_PROJECT_ID = process.env.RAILWAY_PROJECT_ID || '';
 const RAILWAY_ENVIRONMENT_ID = process.env.RAILWAY_ENVIRONMENT_ID || '';
@@ -352,6 +359,45 @@ app.get('/api/me', requireAuth, (req, res) => {
   const user = db.prepare('SELECT id, email, plan, created_at FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
+});
+
+// ── DEPLOYMENT DIAGNOSTICS ─────────────────────────────────────────────────────
+// Reports which Railway project/service is serving this app and whether storage
+// is durable. Read-only, no secrets: token presence is reported as a boolean.
+app.get('/api/_diag', (req, res) => {
+  const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
+  res.json({
+    railway: {
+      projectName: process.env.RAILWAY_PROJECT_NAME || null,
+      projectId: RAILWAY_PROJECT_ID || null,
+      environmentName: process.env.RAILWAY_ENVIRONMENT_NAME || null,
+      environmentId: RAILWAY_ENVIRONMENT_ID || null,
+      serviceName: process.env.RAILWAY_SERVICE_NAME || null,
+      serviceId: RAILWAY_SERVICE_ID || null,
+      publicDomain: process.env.RAILWAY_PUBLIC_DOMAIN || null,
+      gitRepo: process.env.RAILWAY_GIT_REPO_OWNER
+        ? `${process.env.RAILWAY_GIT_REPO_OWNER}/${process.env.RAILWAY_GIT_REPO_NAME}`
+        : null,
+    },
+    storage: {
+      // The critical one: without a volume or Postgres, every deploy wipes all sites
+      volumeAttached: Boolean(volumePath),
+      volumeMountPath: volumePath,
+      postgresConfigured: Boolean(process.env.DATABASE_URL),
+      durable: Boolean(volumePath || process.env.DATABASE_URL),
+      siteCount: (() => {
+        try { return db.prepare('SELECT COUNT(*) c FROM sites').get()?.c ?? null; }
+        catch { return null; }
+      })(),
+    },
+    features: {
+      railwayDomainApi: RAILWAY_READY,
+      railwayTokenSet: Boolean(RAILWAY_API_TOKEN),
+      stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
+      cloudinaryConfigured: Boolean(process.env.CLOUDINARY_CLOUD_NAME),
+    },
+    cnameTarget: CNAME_TARGET,
+  });
 });
 
 // ── SYNC PLAN (re-verify with Stripe after DB wipe) ────────────────────────────
