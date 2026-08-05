@@ -281,9 +281,27 @@
   .domain-result.error { color:var(--danger); }
   .domain-lock { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#F9FAFB; border-radius:8px; border:1.5px dashed var(--border); font-size:13px; color:var(--text-muted); cursor:pointer; transition:all 0.2s; }
   .domain-lock:hover { border-color:var(--brand); color:var(--brand); }
-  .dns-instructions { font-size:12px; color:var(--text-muted); background:#F9FAFB; border-radius:8px; padding:10px 12px; margin-top:8px; line-height:1.6; display:none; }
+  .dns-instructions { font-size:13px; color:var(--text); background:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:16px; margin-top:10px; line-height:1.6; display:none; }
   .dns-instructions.show { display:block; }
-  .dns-code { font-family:monospace; background:white; padding:2px 6px; border-radius:4px; border:1px solid var(--border); font-size:11px; }
+  .dns-code { font-family:'SF Mono',Monaco,monospace; background:white; padding:2px 6px; border-radius:4px; border:1px solid var(--border); font-size:11px; }
+  /* Step-by-step DNS guide */
+  .dns-title { font-size:14px; font-weight:800; color:#92400E; margin-bottom:4px; }
+  .dns-sub { font-size:12px; color:#B45309; margin-bottom:14px; line-height:1.5; }
+  .dns-step { display:flex; gap:10px; margin-bottom:14px; }
+  .dns-step-num { flex-shrink:0; width:22px; height:22px; border-radius:50%; background:#F59E0B; color:white; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .dns-step-body { flex:1; font-size:13px; color:#78350F; line-height:1.55; }
+  .dns-step-body strong { color:#451A03; }
+  .dns-table { width:100%; border-collapse:separate; border-spacing:0; background:white; border:1px solid #FDE68A; border-radius:8px; overflow:hidden; margin-top:8px; font-size:12px; }
+  .dns-table th { background:#FEF3C7; color:#92400E; font-weight:700; text-align:left; padding:7px 10px; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+  .dns-table td { padding:8px 10px; border-top:1px solid #FEF3C7; vertical-align:middle; }
+  .dns-val { font-family:'SF Mono',Monaco,monospace; font-size:12px; color:#1A1A2E; word-break:break-all; }
+  .dns-copy { background:#F59E0B; color:white; border:none; border-radius:5px; padding:4px 9px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; margin-left:6px; }
+  .dns-copy:hover { background:#D97706; }
+  .dns-copy.copied { background:#10B981; }
+  .dns-note { background:#FEF3C7; border-radius:7px; padding:10px 12px; font-size:12px; color:#78350F; margin-top:12px; line-height:1.55; }
+  .dns-links { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .dns-link { font-size:11px; color:#92400E; background:white; border:1px solid #FDE68A; border-radius:20px; padding:4px 11px; text-decoration:none; font-weight:600; }
+  .dns-link:hover { background:#FEF3C7; }
 </style>
 </head>
 <body>
@@ -1508,12 +1526,99 @@ function renderDomainSection(plan, uuid) {
         </div>
         <div class="domain-result" id="customdomain-result"></div>
         <div class="dns-instructions" id="dns-instructions">
-          Point your domain's DNS to us:<br>
-          Add a <span class="dns-code">CNAME</span> record → <span class="dns-code">sitesnap.app</span><br>
-          (or an <span class="dns-code">A</span> record to your server IP)<br>
-          SSL is automatic — takes a few minutes after DNS propagates.<br><br>
-          <button class="btn-domain-save" id="btn-dns-check" onclick="checkDns('${uuid}')" style="background:#6B7280;font-size:12px;padding:8px 14px;">🔍 Check DNS Status</button>
-          <div id="dns-check-result" style="margin-top:6px;font-size:12px;"></div>
+          <div class="dns-title">⚠️ One more step — connect your domain</div>
+          <div class="dns-sub">
+            Your domain is saved, but it won't work until you tell your domain provider
+            to point it here. This takes about 5 minutes.
+          </div>
+
+          <div class="dns-step">
+            <div class="dns-step-num">1</div>
+            <div class="dns-step-body">
+              <strong>Log in where you bought your domain.</strong>
+              That's your "domain registrar" — usually whoever charged you the yearly fee.
+              <div class="dns-links">
+                <a class="dns-link" href="https://dcc.godaddy.com/manage/dns" target="_blank" rel="noopener">GoDaddy</a>
+                <a class="dns-link" href="https://ap.www.namecheap.com/domains/list/" target="_blank" rel="noopener">Namecheap</a>
+                <a class="dns-link" href="https://dash.cloudflare.com/" target="_blank" rel="noopener">Cloudflare</a>
+                <a class="dns-link" href="https://domains.google.com/registrar" target="_blank" rel="noopener">Google Domains</a>
+                <a class="dns-link" href="https://account.squarespace.com/domains" target="_blank" rel="noopener">Squarespace</a>
+                <a class="dns-link" href="https://www.wix.com/my-account/domains" target="_blank" rel="noopener">Wix</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="dns-step">
+            <div class="dns-step-num">2</div>
+            <div class="dns-step-body">
+              <strong>Find the DNS settings.</strong>
+              Look for a button or tab called <em>DNS</em>, <em>Manage DNS</em>,
+              <em>DNS Records</em>, or <em>Advanced DNS</em>. Then click
+              <em>Add Record</em>.
+            </div>
+          </div>
+
+          <div class="dns-step">
+            <div class="dns-step-num">3</div>
+            <div class="dns-step-body">
+              <strong>Copy these three values into the form:</strong>
+              <table class="dns-table">
+                <thead>
+                  <tr><th>Field</th><th>What to enter</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Type</strong></td>
+                    <td><span class="dns-val" id="dns-type">CNAME</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Name</strong><br><span style="font-size:10px;color:#B45309;">(or "Host")</span></td>
+                    <td>
+                      <span class="dns-val" id="dns-host">www</span>
+                      <button class="dns-copy" onclick="copyDnsValue('dns-host', this)">Copy</button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Value</strong><br><span style="font-size:10px;color:#B45309;">(or "Points to"/"Target")</span></td>
+                    <td>
+                      <span class="dns-val" id="dns-target">—</span>
+                      <button class="dns-copy" onclick="copyDnsValue('dns-target', this)">Copy</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style="font-size:11px;color:#B45309;margin-top:6px;">
+                Leave TTL on its default (or "Automatic"). Then hit Save.
+              </div>
+            </div>
+          </div>
+
+          <div class="dns-step">
+            <div class="dns-step-num">4</div>
+            <div class="dns-step-body">
+              <strong>Wait, then check.</strong>
+              Changes usually go live in 10–30 minutes, but can take up to 24 hours.
+              Come back and click the button below to see if it's working.
+              <div style="margin-top:8px;">
+                <button class="btn-domain-save" id="btn-dns-check" onclick="checkDns('${uuid}')" style="background:#F59E0B;font-size:12px;padding:8px 14px;">🔍 Check if it's working</button>
+              </div>
+              <div id="dns-check-result" style="margin-top:8px;font-size:12px;"></div>
+            </div>
+          </div>
+
+          <div class="dns-note" id="dns-root-note" style="display:none;">
+            <strong>Heads up about root domains.</strong>
+            You entered a domain without <span class="dns-code">www</span> in front.
+            Many providers can't point a bare domain with a CNAME record. If you don't see
+            <span class="dns-code">ALIAS</span> or <span class="dns-code">ANAME</span> as a Type option,
+            the easiest fix is to use <span class="dns-code" id="dns-www-suggestion">www.yourdomain.com</span> instead,
+            then turn on your provider's "forward bare domain to www" setting.
+          </div>
+
+          <div class="dns-note">
+            🔒 <strong>Your security certificate is automatic.</strong>
+            Once DNS connects, we set up HTTPS for you within a few minutes — nothing to buy or install.
+          </div>
         </div>
       </div>`;
   }
@@ -1556,13 +1661,44 @@ async function saveCustomDomain(uuid) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
-    resultEl.textContent = `✓ Connected! Now point your DNS (see below).`;
+
+    resultEl.textContent = `✓ Saved — now finish the DNS setup below`;
     resultEl.className = 'domain-result success';
-    if (dnsEl) dnsEl.classList.add('show');
+
+    // Fill the step-by-step guide with this domain's exact values
+    const typeEl = document.getElementById('dns-type');
+    const hostEl = document.getElementById('dns-host');
+    const targetEl = document.getElementById('dns-target');
+    if (typeEl) typeEl.textContent = data.recordType || 'CNAME';
+    if (hostEl) hostEl.textContent = data.host || 'www';
+    if (targetEl) targetEl.textContent = data.dnsTarget || '';
+
+    // Root domains need an extra warning — CNAME often isn't allowed on bare domains
+    const rootNote = document.getElementById('dns-root-note');
+    if (rootNote) {
+      rootNote.style.display = data.isRoot ? 'block' : 'none';
+      const sugg = document.getElementById('dns-www-suggestion');
+      if (sugg && data.isRoot) sugg.textContent = 'www.' + data.domain;
+    }
+
+    if (dnsEl) {
+      dnsEl.classList.add('show');
+      dnsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   } catch(e) {
     resultEl.textContent = '✗ ' + e.message;
     resultEl.className = 'domain-result error';
   }
+}
+
+function copyDnsValue(elId, btn) {
+  const val = document.getElementById(elId)?.textContent || '';
+  navigator.clipboard.writeText(val).then(() => {
+    const original = btn.textContent;
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1800);
+  }).catch(() => { btn.textContent = 'Press Ctrl+C'; });
 }
 
 async function checkDns(uuid) {
@@ -1577,20 +1713,33 @@ async function checkDns(uuid) {
     });
     const data = await res.json();
     if (data.pointed) {
-      resultEl.textContent = `✓ DNS is pointing correctly! SSL will activate shortly.`;
+      resultEl.innerHTML = `<strong style="color:#059669;">✓ It's working!</strong><br>
+        Your domain is connected. We're setting up your security certificate now —
+        your site will be live at <strong>${domain}</strong> within a few minutes.`;
       resultEl.style.color = 'var(--success)';
     } else if (data.cnames && data.cnames.length) {
-      resultEl.textContent = `⚠ DNS found but points to: ${data.cnames.join(', ')} — needs to point to ${data.target}`;
-      resultEl.style.color = '#F59E0B';
+      resultEl.innerHTML = `<strong style="color:#D97706;">⚠ Almost there</strong><br>
+        Your domain is pointing to <span class="dns-code">${data.cnames.join(', ')}</span>,
+        but it needs to point to <span class="dns-code">${data.target}</span>.<br>
+        Go back to step 3 and double-check the <strong>Value</strong> field.`;
+      resultEl.style.color = '#D97706';
+    } else if (data.hasRecords) {
+      resultEl.innerHTML = `<strong style="color:#D97706;">⏳ Records found, still connecting</strong><br>
+        Your provider has DNS records set up, but they haven't finished pointing here yet.
+        This is normal — wait 15 more minutes and check again.`;
+      resultEl.style.color = '#D97706';
     } else {
-      resultEl.textContent = `✗ No CNAME found yet. DNS can take up to 48 hours to propagate.`;
+      resultEl.innerHTML = `<strong style="color:#DC2626;">Not connected yet</strong><br>
+        We can't see your DNS record. Either it hasn't finished spreading across the
+        internet (give it 30 more minutes), or it wasn't saved.
+        Double-check steps 2 and 3 above, then try again.`;
       resultEl.style.color = 'var(--danger)';
     }
   } catch(e) {
-    resultEl.textContent = 'Check failed — try again.';
+    resultEl.textContent = 'Check failed — try again in a moment.';
     resultEl.style.color = 'var(--danger)';
   } finally {
-    if (btn) { btn.textContent = '🔍 Check DNS Status'; btn.disabled = false; }
+    if (btn) { btn.textContent = '🔍 Check if it\'s working'; btn.disabled = false; }
   }
 }
 
