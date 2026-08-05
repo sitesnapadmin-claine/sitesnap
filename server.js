@@ -141,11 +141,15 @@ function requireAuth(req, res, next) {
     req.user = jwt.verify(token, JWT_SECRET);
     // Railway wipes SQLite on redeploy — if the user row is gone, restore it
     // from the JWT so plan lookups and FK-adjacent logic keep working.
-    const exists = db.prepare('SELECT id FROM users WHERE id = ?').get(req.user.id);
+    const exists = db.prepare('SELECT id, plan FROM users WHERE id = ?').get(req.user.id);
     if (!exists) {
+      // DB was wiped — restore user from JWT, preserving their paid plan if present
       db.prepare(
-        "INSERT OR IGNORE INTO users (id, email, password_hash, plan) VALUES (?, ?, 'restored', 'free')"
-      ).run(req.user.id, req.user.email);
+        "INSERT OR IGNORE INTO users (id, email, password_hash, plan) VALUES (?, ?, 'restored', ?)"
+      ).run(req.user.id, req.user.email, req.user.plan || 'free');
+    } else if (req.user.plan && req.user.plan !== 'free' && exists.plan === 'free') {
+      // JWT carries a paid plan but DB shows free (post-redeploy wipe) — restore it
+      db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(req.user.plan, req.user.id);
     }
     next();
   } catch {
@@ -172,7 +176,7 @@ app.post('/api/auth/register', async (req, res) => {
     const result = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(
       email.toLowerCase().trim(), hash
     );
-    const token = jwt.sign({ id: result.lastInsertRowid, email: email.toLowerCase() }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: result.lastInsertRowid, email: email.toLowerCase(), plan: 'free' }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, email: email.toLowerCase(), plan: 'free' });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That email is already registered' });
@@ -186,7 +190,7 @@ app.post('/api/auth/login', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
-  const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
+  const token = jwt.sign({ id: user.id, email: user.email, plan: user.plan || 'free' }, JWT_SECRET, { expiresIn: '30d' });
   res.json({ token, email: user.email, plan: user.plan || 'free' });
 });
 
@@ -194,6 +198,51 @@ app.get('/api/me', requireAuth, (req, res) => {
   const user = db.prepare('SELECT id, email, plan, created_at FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
+});
+
+// ── SYNC PLAN (re-verify with Stripe after DB wipe) ────────────────────────────
+app.post('/api/sync-plan', requireAuth, async (req, res) => {
+  try {
+    const email = req.user.email;
+    let plan = 'free';
+    let customerId = null;
+    let subscriptionId = null;
+
+    const customers = await stripe.customers.list({ email, limit: 1 });
+    if (customers.data.length > 0) {
+      customerId = customers.data[0].id;
+      // Active subscription → pro
+      const subs = await stripe.subscriptions.list({ customer: customerId, status: 'active', limit: 5 });
+      if (subs.data.length > 0) {
+        plan = 'pro';
+        subscriptionId = subs.data[0].id;
+      } else {
+        // Completed one-time checkout → starter
+        const sessions = await stripe.checkout.sessions.list({ customer: customerId, limit: 20 });
+        const paidStarter = sessions.data.find(s =>
+          s.payment_status === 'paid' && s.mode === 'payment' && s.metadata?.plan === 'starter'
+        );
+        if (paidStarter) plan = 'starter';
+      }
+    }
+
+    if (subscriptionId && customerId) {
+      db.prepare('UPDATE users SET plan = ?, stripe_customer_id = COALESCE(stripe_customer_id, ?), stripe_subscription_id = ? WHERE id = ?')
+        .run(plan, customerId, subscriptionId, req.user.id);
+    } else if (customerId) {
+      db.prepare('UPDATE users SET plan = ?, stripe_customer_id = COALESCE(stripe_customer_id, ?) WHERE id = ?')
+        .run(plan, customerId, req.user.id);
+    } else {
+      db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.user.id);
+    }
+
+    // Issue a new JWT with plan baked in so future redeployments preserve it
+    const newToken = jwt.sign({ id: req.user.id, email: req.user.email, plan }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ plan, token: newToken });
+  } catch (e) {
+    console.error('sync-plan error:', e.message);
+    res.status(500).json({ error: 'Could not sync plan: ' + e.message });
+  }
 });
 
 // ── UPLOAD ─────────────────────────────────────────────────────────────────────
