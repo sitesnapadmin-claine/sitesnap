@@ -564,12 +564,12 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
   </div>
   <div class="hero-img-wrap">${heroImg}</div>
 </div>
-<div class="trust-bar">
-  <div class="trust-item"><div class="trust-dot"></div>Trusted by clients worldwide</div>
-  <div class="trust-item"><div class="trust-dot"></div>5-star rated</div>
-  <div class="trust-item"><div class="trust-dot"></div>100% satisfaction</div>
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.location || 'Available online')}</div>
-</div>
+${s.showTrustBar !== false ? `<div class="trust-bar">
+  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust1 || 'Trusted by clients worldwide')}</div>
+  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust2 || '5-star rated')}</div>
+  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust3 || '100% satisfaction')}</div>
+  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust4 || s.location || 'Available online')}</div>
+</div>` : ''}
 <section class="about" id="about">
   <div class="about-grid">
     <div class="about-img">${aboutImg}</div>
@@ -603,8 +603,8 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
   </div>
 </section>
 <section class="cta-section" id="contact">
-  <h2>Ready to get started?</h2>
-  <p>Join the people already working with ${escHtml(name)}. Your journey begins with one simple step.</p>
+  <h2>${escHtml(s.ctaHeadline || 'Ready to get started?')}</h2>
+  <p>${escHtml(s.ctaSubtext || `Join the people already working with ${name}. Your journey begins with one simple step.`)}</p>
   <button class="btn-p" style="background:${f.ctaSectionBtn};color:${f.ctaSectionBtnText};font-size:17px;padding:18px 44px;">${escHtml(cta)} →</button>
 </section>
 <footer>
