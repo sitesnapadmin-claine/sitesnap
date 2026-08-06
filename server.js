@@ -184,9 +184,16 @@ function formatDnsRecords(rwDomain) {
     // A certificate is only issued after the domain verifies, so treat ISSUED
     // as proof the TXT record landed — otherwise a working site would show
     // this record stuck on "waiting" forever.
+    //
+    // The TXT host is "_railway-verify." prefixed onto the same label as the
+    // routing record (e.g. _railway-verify.shop for shop.example.com).
+    const routingHost = records[0]?.host;
+    const txtHost = routingHost && routingHost !== '@'
+      ? `_railway-verify.${routingHost}`
+      : '_railway-verify';
     records.push({
       type: 'TXT',
-      host: '_railway',
+      host: txtHost,
       value: st.verificationToken,
       current: null,
       status: st.certificateStatus === 'ISSUED' ? 'VALID' : 'PENDING',
@@ -701,17 +708,18 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
       if (isUniqueViolation(e)) return res.status(409).json({ error: 'That domain is already connected to another site' });
       return res.status(500).json({ error: 'Could not save domain' });
     }
+    // We deliberately do NOT invent DNS values here. Railway mints a unique
+    // CNAME target per domain (e.g. 33xjvv2c.up.railway.app) plus a matching
+    // TXT verification token — neither can be derived from the app's own URL.
+    // Guessing produces records that look plausible, fail silently, and cost
+    // the customer hours. Better to say we don't know yet.
     return res.json({
       domain: clean,
       isRoot,
       autoProvisioned: false,
-      records: [{
-        type: isRoot ? 'ALIAS' : 'CNAME',
-        host: isRoot ? '@' : clean.split('.')[0],
-        value: CNAME_TARGET,
-        status: 'PENDING',
-        purpose: 'routing',
-      }],
+      records: [],
+      needsManualSetup: true,
+      message: 'Your domain is saved. We\'ll email you the two DNS records to add shortly.',
     });
   }
 
