@@ -1651,7 +1651,7 @@ async function saveCustomDomain(uuid) {
     resultEl.textContent = `✓ Saved — now finish the DNS setup below`;
     resultEl.className = 'domain-result success';
 
-    renderDnsRecords(data.records || []);
+    renderDnsRecords(data.records || [], { needsManualSetup: data.needsManualSetup });
 
     // Root domains need an extra warning — CNAME often isn't allowed on bare domains
     const rootNote = document.getElementById('dns-root-note');
@@ -1671,10 +1671,19 @@ async function saveCustomDomain(uuid) {
   }
 }
 
-function renderDnsRecords(records) {
+function renderDnsRecords(records, opts) {
   const wrap = document.getElementById('dns-records-wrap');
   if (!wrap) return;
-  if (!records.length) { wrap.innerHTML = ''; return; }
+
+  // No records yet — say so plainly rather than showing an empty table or,
+  // worse, invented values that would silently never work.
+  if (!records.length) {
+    wrap.innerHTML = opts && opts.needsManualSetup
+      ? `<div class="dns-multi-note">Your domain is saved. We're generating your DNS records now —
+           you'll get them by email shortly. Nothing to do until then.</div>`
+      : '';
+    return;
+  }
 
   const statusPill = (s) => {
     if (s === 'VALID') return '<span class="dns-pill dns-pill-ok">✓ Done</span>';
