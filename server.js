@@ -45,6 +45,20 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 // Only this account can read /api/_diag. Unset = the endpoint doesn't exist.
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
 
+// Starter subdomains (yourbrand.ourdomain.com) need a domain we control with a
+// wildcard certificate. Railway's own *.up.railway.app cert covers exactly one
+// label, so brand.myapp.up.railway.app can never present a valid certificate.
+// Rather than sell a feature that cannot work, hide it until APP_DOMAIN is a
+// real product domain — at which point this flips back on by itself.
+// Deliberately keyed off the raw env var, not APP_DOMAIN, which falls back to a
+// placeholder. An unconfigured deploy must not advertise subdomains on a domain
+// nobody owns — off unless someone explicitly sets a real one.
+const APP_DOMAIN_CONFIGURED = (process.env.APP_DOMAIN || '').trim();
+const SUBDOMAINS_ENABLED =
+  Boolean(APP_DOMAIN_CONFIGURED) &&
+  !/\.up\.railway\.app$/i.test(APP_DOMAIN_CONFIGURED) &&
+  !/^localhost(:|$)/i.test(APP_DOMAIN_CONFIGURED);
+
 // ── RAILWAY API ────────────────────────────────────────────────────────────────
 // Lets us register customer domains with Railway automatically instead of
 // adding each one by hand in the dashboard. If these aren't set, the app falls
@@ -556,6 +570,17 @@ app.get('/api/_diag', async (req, res) => {
   });
 });
 
+// ── PUBLIC CONFIG ──────────────────────────────────────────────────────────────
+// Lets the frontend hide features that can't currently work, so we never
+// advertise something a paying customer would then be unable to use.
+app.get('/api/config', (req, res) => {
+  res.json({
+    subdomainsEnabled: SUBDOMAINS_ENABLED,
+    subdomainSuffix: SUBDOMAINS_ENABLED ? APP_DOMAIN : null,
+    customDomainsEnabled: true,
+  });
+});
+
 // ── SYNC PLAN (re-verify with Stripe after DB wipe) ────────────────────────────
 app.post('/api/sync-plan', requireAuth, async (req, res) => {
   try {
@@ -668,6 +693,11 @@ app.delete('/api/sites/:uuid', requireAuth, async (req, res) => {
 
 // ── SUBDOMAIN (Starter+) ───────────────────────────────────────────────────────
 app.post('/api/sites/:uuid/subdomain', requireAuth, requirePlan('starter'), async (req, res) => {
+  if (!SUBDOMAINS_ENABLED) {
+    return res.status(503).json({
+      error: 'Subdomains aren\'t available yet. Your custom domain option still works.',
+    });
+  }
   const { subdomain } = req.body || {};
   if (!subdomain) return res.status(400).json({ error: 'Subdomain is required' });
   const clean = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
