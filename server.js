@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const dns = require('dns').promises;
+const crypto = require('crypto');
 const multer = require('multer');
 // better-sqlite3 is a native module and only needed for the SQLite fallback —
 // required lazily so a Postgres deploy never depends on it compiling.
@@ -219,6 +220,31 @@ function formatDnsRecords(rwDomain) {
   return records;
 }
 
+// ── EMAIL (password reset) ─────────────────────────────────────────────────────
+// Reset links are useless without a way to send them, and a From address on a
+// domain we don't control gets spam-filtered. Both must be set before the
+// feature turns on, so it can't half-work.
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESET_FROM_EMAIL = process.env.RESET_FROM_EMAIL || '';
+const EMAIL_READY = Boolean(RESEND_API_KEY && RESET_FROM_EMAIL);
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // one hour
+
+async function sendEmail({ to, subject, html }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: RESET_FROM_EMAIL, to: [to], subject, html }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Email provider returned ${res.status}: ${detail.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+// Only the hash is stored, so a database leak can't be used to seize accounts.
+const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
+
 // How many websites each plan may own. Editing a site is always allowed —
 // this caps creation only.
 const SITE_LIMITS = { free: 1, starter: 1, pro: Infinity };
@@ -331,6 +357,8 @@ async function initDb() {
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS subdomain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS custom_domain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires BIGINT',
     ]) { try { await pgPool.query(sql); } catch (e) { console.warn('migration skipped:', e.message); } }
     console.log('✓ Using Postgres — site data survives redeploys');
     return;
@@ -364,6 +392,8 @@ async function initDb() {
     'ALTER TABLE sites ADD COLUMN subdomain TEXT',
     'ALTER TABLE sites ADD COLUMN custom_domain TEXT',
     'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
+    'ALTER TABLE users ADD COLUMN reset_token_hash TEXT',
+    'ALTER TABLE users ADD COLUMN reset_expires INTEGER',
   ].forEach(sql => { try { sqliteDb.exec(sql); } catch (_) {} });
   console.warn('⚠️  Using SQLite — on an ephemeral host, saved sites are LOST on every redeploy.');
   console.warn('   Attach a Postgres service so DATABASE_URL is set.');
@@ -610,6 +640,66 @@ app.post('/api/auth/set-password', requireAuth, async (req, res) => {
   }
 });
 
+// ── PASSWORD RESET ─────────────────────────────────────────────────────────────
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const email = String((req.body || {}).email || '').toLowerCase().trim();
+
+  if (!EMAIL_READY) {
+    // Not an enumeration leak: this answer doesn't depend on the address.
+    return res.status(503).json({
+      error: 'Password reset isn\'t switched on yet. Please contact support to regain access.',
+      code: 'RESET_UNAVAILABLE',
+    });
+  }
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  try {
+    const user = await dbGet('SELECT id, email FROM users WHERE email = ?', email);
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      await dbRun('UPDATE users SET reset_token_hash = ?, reset_expires = ? WHERE id = ?',
+        hashToken(token), Date.now() + RESET_TOKEN_TTL_MS, user.id);
+      const link = `${BASE_URL}/reset-password?token=${token}`;
+      await sendEmail({
+        to: user.email,
+        subject: 'Reset your SiteSnap password',
+        html: `<p>We received a request to reset your SiteSnap password.</p>
+               <p><a href="${escHtml(link)}">Choose a new password</a></p>
+               <p>This link works once and expires in an hour. If you didn't ask for it, you can ignore this email — nothing will change.</p>`,
+      });
+    }
+    // Same response whether or not the address exists, so this can't be used
+    // to discover who has an account.
+    res.json({ ok: true, message: 'If that email has an account, a reset link is on its way.' });
+  } catch (e) {
+    console.error('forgot-password error:', e.message);
+    res.status(500).json({ error: 'Could not send the reset email. Please try again shortly.' });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token) return res.status(400).json({ error: 'Reset link is missing its token' });
+  if (!password || String(password).length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  try {
+    const user = await dbGet('SELECT id, reset_expires FROM users WHERE reset_token_hash = ?', hashToken(token));
+    if (!user) return res.status(400).json({ error: 'This reset link is invalid or has already been used.' });
+    if (!user.reset_expires || Number(user.reset_expires) < Date.now()) {
+      return res.status(400).json({ error: 'This reset link has expired. Please request a new one.' });
+    }
+    const hash = await bcrypt.hash(String(password), 10);
+    // Clearing the token makes the link single-use
+    await dbRun('UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_expires = NULL WHERE id = ?',
+      hash, user.id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('reset-password error:', e.message);
+    res.status(500).json({ error: 'Could not reset the password' });
+  }
+});
+
 // ── PUBLIC CONFIG ──────────────────────────────────────────────────────────────
 // Lets the frontend hide features that can't currently work, so we never
 // advertise something a paying customer would then be unable to use.
@@ -618,6 +708,7 @@ app.get('/api/config', (req, res) => {
     subdomainsEnabled: SUBDOMAINS_ENABLED,
     subdomainSuffix: SUBDOMAINS_ENABLED ? APP_DOMAIN : null,
     customDomainsEnabled: true,
+    passwordResetEnabled: EMAIL_READY,
   });
 });
 
@@ -991,6 +1082,59 @@ async function handleStripeWebhook(req, res) {
   }
   res.json({ received: true });
 }
+
+// ── RESET PASSWORD PAGE ────────────────────────────────────────────────────────
+// Standalone page the email link opens. Kept separate from the wizard so it
+// works even for someone who can't sign in.
+app.get('/reset-password', (req, res) => {
+  const token = String(req.query.token || '');
+  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Choose a new password — SiteSnap</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;background:#F7F7FB;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.card{background:#fff;border-radius:20px;padding:40px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(108,71,255,.12)}
+h1{font-size:22px;font-weight:800;color:#1A1A2E;margin-bottom:8px}
+p.sub{font-size:14px;color:#6B7280;line-height:1.6;margin-bottom:24px}
+label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px}
+input{width:100%;padding:13px 14px;border:1.5px solid #E5E7EB;border-radius:10px;font-size:15px;font-family:inherit}
+input:focus{outline:none;border-color:#6C47FF}
+button{width:100%;margin-top:16px;padding:14px;background:#6C47FF;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
+button:disabled{opacity:.6;cursor:default}
+.msg{margin-top:14px;font-size:13px;line-height:1.5}
+.ok{color:#059669}.bad{color:#DC2626}
+a{color:#6C47FF;font-weight:600;text-decoration:none}</style></head><body>
+<div class="card">
+  <h1>Choose a new password</h1>
+  <p class="sub">Pick something you'll remember. This link works once.</p>
+  <label for="pw">New password</label>
+  <input type="password" id="pw" placeholder="At least 6 characters" autocomplete="new-password">
+  <button id="go" onclick="submitReset()">Save new password</button>
+  <div class="msg" id="msg"></div>
+</div>
+<script>
+const TOKEN = ${JSON.stringify(token)};
+async function submitReset(){
+  const pw = document.getElementById('pw').value;
+  const msg = document.getElementById('msg');
+  const btn = document.getElementById('go');
+  if (pw.length < 6){ msg.className='msg bad'; msg.textContent='Please use at least 6 characters.'; return; }
+  btn.disabled = true; msg.className='msg'; msg.textContent='Saving…';
+  try{
+    const r = await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: TOKEN, password: pw })});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || 'Something went wrong');
+    msg.className='msg ok';
+    msg.innerHTML='✓ Password updated. <a href="/">Sign in now →</a>';
+    btn.style.display='none';
+  }catch(e){
+    msg.className='msg bad'; msg.textContent = e.message; btn.disabled=false;
+  }
+}
+document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Enter') submitReset(); });
+</script></body></html>`);
+});
 
 // ── PREVIEW ROUTE ──────────────────────────────────────────────────────────────
 app.get('/preview/:uuid', async (req, res) => {
