@@ -703,6 +703,19 @@
         <div class="domain-section" id="domain-section" style="display:none;">
           <div class="domain-section-title" id="domain-section-title">🌐 Claim your custom address</div>
           <div id="domain-section-content"></div>
+          <!-- Shown when the account has no usable password (rebuilt from a token) -->
+          <div id="set-password-wrap" style="display:none;margin-top:12px;padding:12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;">
+            <div style="font-size:13px;font-weight:600;color:#92400E;margin-bottom:4px;">Set a password for this account</div>
+            <div style="font-size:12px;color:#B45309;line-height:1.5;margin-bottom:8px;">
+              You're signed in, but this account has no password yet — so you can't sign in again from another browser. Set one now.
+            </div>
+            <div style="display:flex;gap:8px;">
+              <input type="password" id="new-password" class="copy-field" placeholder="New password (min 6 characters)" style="flex:1;">
+              <button class="btn-domain-save" onclick="saveNewPassword()">Save</button>
+            </div>
+            <div id="set-password-result" style="font-size:12px;margin-top:6px;"></div>
+          </div>
+
           <div id="restore-plan-wrap" style="display:none;margin-top:10px;text-align:center;">
             <button onclick="syncPlan()" style="background:none;border:none;color:#6C47FF;font-size:12px;cursor:pointer;text-decoration:underline;padding:0;">
               Already on a paid plan? Restore your access →
@@ -1729,6 +1742,7 @@ function renderDomainSection(plan, uuid) {
   // Show restore-plan link only for free users (in case they already paid)
   const restoreWrap = document.getElementById('restore-plan-wrap');
   if (restoreWrap) restoreWrap.style.display = plan === 'free' ? 'block' : 'none';
+  checkNeedsPassword();
 
   const sfx = subdomainSuffix || 'sitesnap.app';
 
@@ -1934,6 +1948,46 @@ async function saveCustomDomain(uuid) {
 /* If the server rejects a paid feature, surface the restore link even to users
    whose browser thinks they're already on a paid plan. Without this, a stale
    local plan hides the one control that would fix the mismatch. */
+/* Accounts rebuilt from a token have no password. Offer to set one while the
+   session is still valid — otherwise the owner is locked out for good. */
+async function checkNeedsPassword() {
+  if (!authToken) return;
+  try {
+    const me = await (await fetch('/api/me', { headers: { Authorization: `Bearer ${authToken}` } })).json();
+    const wrap = document.getElementById('set-password-wrap');
+    if (wrap && me && me.needsPassword) wrap.style.display = 'block';
+  } catch (_) {}
+}
+
+async function saveNewPassword() {
+  const input = document.getElementById('new-password');
+  const out = document.getElementById('set-password-result');
+  const pw = (input?.value || '');
+  if (pw.length < 6) {
+    out.textContent = 'Please use at least 6 characters.';
+    out.style.color = 'var(--danger)';
+    return;
+  }
+  out.textContent = 'Saving…';
+  out.style.color = 'var(--text-muted)';
+  try {
+    const res = await fetch('/api/auth/set-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ password: pw }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    input.value = '';
+    out.textContent = '✓ Password set — you can now sign in from anywhere.';
+    out.style.color = 'var(--success)';
+    setTimeout(() => { document.getElementById('set-password-wrap').style.display = 'none'; }, 4000);
+  } catch (e) {
+    out.textContent = '✗ ' + e.message;
+    out.style.color = 'var(--danger)';
+  }
+}
+
 function revealRestoreOption() {
   const wrap = document.getElementById('restore-plan-wrap');
   if (wrap) wrap.style.display = 'block';
