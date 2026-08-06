@@ -1194,21 +1194,32 @@ async function buildWebsite(s, uuid, baseUrl) {
   const loc = s.location ? ` · ${s.location}` : '';
   const f = getTheme(s);
 
+  // Testimonials: supports multiple reviews (s.testimonials[]), falling back
+  // to the older single testimonialQuote/testimonialAuthor pair for sites
+  // saved before this existed. Never invent a review — the old build shipped
+  // a fabricated quote from "A Happy Client" on every site, which is the
+  // customer's legal exposure, not ours to create. Each entry only renders
+  // once they've written a real quote for it.
+  const rawTestimonials = (s.testimonials && s.testimonials.length)
+    ? s.testimonials
+    : [{ quote: s.testimonialQuote, author: s.testimonialAuthor }];
+  const testimonials = rawTestimonials
+    .slice(0, 3)
+    .map(t => ({ quote: ((t && t.quote) || '').trim(), author: ((t && t.author) || '').trim() || 'Client' }))
+    .filter(t => t.quote);
+
   // Which sections to render. Anything unset defaults to visible so existing
   // sites are unchanged — except the testimonial, which is opt-in.
   const sec = s.sections || {};
-  const hasRealTestimonial = Boolean((s.testimonialQuote || '').trim());
   const show = {
     about: sec.about !== false,
     services: sec.services !== false,
-    // Never invent a review. The old build shipped a fabricated quote from
-    // "A Happy Client" on every site, which is the customer's legal exposure,
-    // not ours to create. Only renders once they've written a real one.
-    testimonial: sec.testimonial === true && hasRealTestimonial,
+    testimonial: sec.testimonial === true && testimonials.length > 0,
     cta: sec.cta !== false,
   };
 
-  // Feature cards: owner-editable, falling back to the generic copy
+  // Feature cards: owner-editable, falling back to the generic copy.
+  // Icon can be a custom-uploaded image (iconUrl) or the theme's default emoji.
   const defaultFeat = [
     { icon: f.feat1, title: 'Quality First',  text: 'Everything we do is crafted with care and relentless attention to detail.' },
     { icon: f.feat2, title: 'Personal Touch', text: "You're not a ticket number — we tailor our approach to your unique situation." },
@@ -1218,6 +1229,7 @@ async function buildWebsite(s, uuid, baseUrl) {
     const c = (s.features && s.features[i]) || {};
     return {
       icon: c.icon || d.icon,
+      iconUrl: (c.iconUrl || '').trim(),
       title: (c.title || '').trim() || d.title,
       text: (c.text || '').trim() || d.text,
     };
@@ -1317,7 +1329,12 @@ section{padding:96px 48px;}
 .feature-title{font-family:${f.headFont};font-size:18px;font-weight:700;color:${f.headingColor};margin-bottom:8px;}
 .feature-text{font-size:14px;color:${f.subTextColor};line-height:1.6;}
 .testimonial-section{background:${f.testimonialBg};text-align:center;}
-.testimonial-card{max-width:640px;margin:0 auto;padding:48px;background:${f.testimonialCardBg};border-radius:${f.cardRadius};border:${f.testimonialBorder};}
+.testimonials-grid{display:grid;gap:28px;max-width:1000px;margin:0 auto;}
+.testimonials-grid.count-1{grid-template-columns:1fr;max-width:640px;}
+.testimonials-grid.count-2{grid-template-columns:repeat(2,1fr);}
+.testimonials-grid.count-3{grid-template-columns:repeat(3,1fr);}
+.testimonial-card{padding:40px 32px;background:${f.testimonialCardBg};border-radius:${f.cardRadius};border:${f.testimonialBorder};text-align:center;}
+@media(max-width:700px){.testimonials-grid.count-2,.testimonials-grid.count-3{grid-template-columns:1fr;}}
 .quote-mark{font-size:64px;color:${f.accent};line-height:0.8;margin-bottom:24px;font-family:Georgia,serif;}
 .quote-text{font-size:20px;color:${f.headingColor};font-style:italic;line-height:1.5;margin-bottom:24px;font-family:${f.headFont};}
 .quote-author{font-size:14px;font-weight:600;color:${f.subTextColor};}
@@ -1338,7 +1355,7 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
 <div class="hero">
   <div>
     <div class="hero-eyebrow">${escHtml(s.industry || 'Premium Service')}${escHtml(loc)}</div>
-    <h1>${heroHeadline(name, s.industry)}</h1>
+    <h1>${(s.heroHeadline || '').trim() ? escHtml(s.heroHeadline) : heroHeadline(name, s.industry)}</h1>
     <p class="hero-sub">${escHtml(tagline)}</p>
     <div class="hero-btns">${renderCta(safeCta('heroMain',cta+' →','contact'), cta+' →', 'btn-p')}${renderCta(safeCta('heroAlt','Learn More','about'), 'Learn More', 'btn-s')}</div>
   </div>
@@ -1369,15 +1386,17 @@ ${show.services ? `<section class="features" id="services">
     <div class="section-sub">${escHtml(s.servicesSub || "We don't just talk the talk — here's what you can expect every single time.")}</div>
   </div>
   <div class="features-grid">
-    ${feat.map(c => `<div class="feature-card"><div class="feature-icon">${c.icon}</div><div class="feature-title">${escHtml(c.title)}</div><div class="feature-text">${escHtml(c.text)}</div></div>`).join('')}
+    ${feat.map(c => `<div class="feature-card"><div class="feature-icon">${c.iconUrl ? `<img src="${escHtml(c.iconUrl)}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:8px;">` : escHtml(c.icon)}</div><div class="feature-title">${escHtml(c.title)}</div><div class="feature-text">${escHtml(c.text)}</div></div>`).join('')}
   </div>
 </section>` : ''}
 ${show.testimonial ? `<section class="testimonial-section">
   <div class="eyebrow" style="text-align:center;margin-bottom:32px;">${escHtml(s.testimonialEyebrow || 'What Clients Say')}</div>
-  <div class="testimonial-card">
-    <div class="quote-mark">"</div>
-    <div class="quote-text">${escHtml(s.testimonialQuote)}</div>
-    <div class="quote-author">— ${escHtml(s.testimonialAuthor || 'Client')}</div>
+  <div class="testimonials-grid count-${testimonials.length}">
+    ${testimonials.map(t => `<div class="testimonial-card">
+      <div class="quote-mark">"</div>
+      <div class="quote-text">${escHtml(t.quote)}</div>
+      <div class="quote-author">— ${escHtml(t.author)}</div>
+    </div>`).join('')}
   </div>
 </section>` : ''}
 ${show.cta ? `<section class="cta-section" id="contact">
