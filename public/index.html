@@ -652,7 +652,7 @@
         <div class="plan-card-price">$29<span> one-time</span></div>
         <div class="plan-card-features">
           <div class="plan-feat">No "Built with SiteSnap" badge</div>
-          <div class="plan-feat">yourbrand.sitesnap.app address</div>
+          <div class="plan-feat subdomain-feature" style="display:none;">yourbrand.sitesnap.app address</div>
           <div class="plan-feat">All 6 design themes</div>
           <div class="plan-feat">Unlimited edits</div>
         </div>
@@ -721,6 +721,22 @@ const state = {
   ctaHeadline:'', ctaSubtext:'',
   designStyle:null
 };
+
+/* Feature availability comes from the server so we never advertise something
+   a paying customer couldn't actually use. Defaults to off until confirmed. */
+let subdomainsEnabled = false;
+let subdomainSuffix = null;
+
+fetch('/api/config')
+  .then(r => r.json())
+  .then(cfg => {
+    subdomainsEnabled = Boolean(cfg.subdomainsEnabled);
+    subdomainSuffix = cfg.subdomainSuffix;
+    if (subdomainsEnabled) {
+      document.querySelectorAll('.subdomain-feature').forEach(el => { el.style.display = ''; });
+    }
+  })
+  .catch(() => {});
 
 let authToken = localStorage.getItem('ss_token') || null;
 let authEmail = localStorage.getItem('ss_email') || null;
@@ -1484,18 +1500,31 @@ function renderDomainSection(plan, uuid) {
   const restoreWrap = document.getElementById('restore-plan-wrap');
   if (restoreWrap) restoreWrap.style.display = plan === 'free' ? 'block' : 'none';
 
+  const sfx = subdomainSuffix || 'sitesnap.app';
+
   if (plan === 'free') {
-    // Tease subdomain — locked
     title.textContent = '🌐 Want a custom address?';
     content.innerHTML = `
+      ${subdomainsEnabled ? `
       <div class="domain-lock" onclick="openUpgradeModal()">
-        🔒 <span>Get <strong>yourbrand.sitesnap.app</strong> — upgrade to Starter ($29 one-time)</span>
-      </div>
+        🔒 <span>Get <strong>yourbrand.${sfx}</strong> — upgrade to Starter ($29 one-time)</span>
+      </div>` : ''}
       <div class="domain-lock" onclick="openUpgradeModal()" style="margin-top:6px;">
         🔒 <span>Connect <strong>yourbrand.com</strong> — upgrade to Pro ($12/month)</span>
       </div>`;
   } else if (plan === 'starter') {
-    title.textContent = '🌐 Set your sitesnap.app address';
+    if (!subdomainsEnabled) {
+      // Nothing to configure yet — say so plainly rather than showing a form
+      // that would save a value and then never resolve.
+      title.textContent = '🌐 Custom address';
+      content.innerHTML = `
+        <div class="dns-multi-note">
+          Your own web address is coming soon — we're finishing the setup.
+          Your site stays live at its current link in the meantime.
+        </div>`;
+      return;
+    }
+    title.textContent = `🌐 Set your ${sfx} address`;
     content.innerHTML = `
       <div class="domain-row">
         <div class="domain-input-wrap">
@@ -1503,7 +1532,7 @@ function renderDomainSection(plan, uuid) {
             <input class="domain-text-input" id="subdomain-input" placeholder="yourbrand" maxlength="30" style="width:100%;"
               oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
           </div>
-          <div class="domain-suffix">.sitesnap.app</div>
+          <div class="domain-suffix">.${sfx}</div>
         </div>
         <button class="btn-domain-save" id="btn-subdomain-save" onclick="saveSubdomain('${uuid}')">Save</button>
       </div>
@@ -1514,18 +1543,19 @@ function renderDomainSection(plan, uuid) {
   } else if (plan === 'pro') {
     title.textContent = '🌐 Your custom addresses';
     content.innerHTML = `
+      ${subdomainsEnabled ? `
       <div style="margin-bottom:12px;">
-        <div class="domain-section-title" style="margin-bottom:6px;font-size:11px;">sitesnap.app address (included)</div>
+        <div class="domain-section-title" style="margin-bottom:6px;font-size:11px;">${sfx} address (included)</div>
         <div class="domain-row">
           <div class="domain-input-wrap">
             <input class="domain-text-input" id="subdomain-input" placeholder="yourbrand" maxlength="30" style="width:100%;"
               oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
-            <div class="domain-suffix">.sitesnap.app</div>
+            <div class="domain-suffix">.${sfx}</div>
           </div>
           <button class="btn-domain-save" onclick="saveSubdomain('${uuid}')">Save</button>
         </div>
         <div class="domain-result" id="subdomain-result"></div>
-      </div>
+      </div>` : ''}
       <div>
         <div class="domain-section-title" style="margin-bottom:6px;font-size:11px;">Custom domain (Pro)</div>
         <div class="domain-row">
