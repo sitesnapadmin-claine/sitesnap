@@ -1204,7 +1204,7 @@ async function buildWebsite(s, uuid, baseUrl) {
     ? s.testimonials
     : [{ quote: s.testimonialQuote, author: s.testimonialAuthor }];
   const testimonials = rawTestimonials
-    .slice(0, 3)
+    .slice(0, 9)
     .map(t => ({ quote: ((t && t.quote) || '').trim(), author: ((t && t.author) || '').trim() || 'Client' }))
     .filter(t => t.quote);
 
@@ -1329,12 +1329,10 @@ section{padding:96px 48px;}
 .feature-title{font-family:${f.headFont};font-size:18px;font-weight:700;color:${f.headingColor};margin-bottom:8px;}
 .feature-text{font-size:14px;color:${f.subTextColor};line-height:1.6;}
 .testimonial-section{background:${f.testimonialBg};text-align:center;}
-.testimonials-grid{display:grid;gap:28px;max-width:1000px;margin:0 auto;}
+.testimonials-grid{display:grid;gap:28px;max-width:1000px;margin:0 auto;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));}
 .testimonials-grid.count-1{grid-template-columns:1fr;max-width:640px;}
-.testimonials-grid.count-2{grid-template-columns:repeat(2,1fr);}
-.testimonials-grid.count-3{grid-template-columns:repeat(3,1fr);}
 .testimonial-card{padding:40px 32px;background:${f.testimonialCardBg};border-radius:${f.cardRadius};border:${f.testimonialBorder};text-align:center;}
-@media(max-width:700px){.testimonials-grid.count-2,.testimonials-grid.count-3{grid-template-columns:1fr;}}
+@media(max-width:700px){.testimonials-grid{grid-template-columns:1fr;}}
 .quote-mark{font-size:64px;color:${f.accent};line-height:0.8;margin-bottom:24px;font-family:Georgia,serif;}
 .quote-text{font-size:20px;color:${f.headingColor};font-style:italic;line-height:1.5;margin-bottom:24px;font-family:${f.headFont};}
 .quote-author{font-size:14px;font-weight:600;color:${f.subTextColor};}
