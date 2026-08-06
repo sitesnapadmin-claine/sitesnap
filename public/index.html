@@ -786,6 +786,12 @@
       <span id="auth-switch-text">Already have an account?</span>
       <a onclick="toggleAuthMode()"> <span id="auth-switch-action">Sign in instead</span></a>
     </div>
+    <!-- Hidden until password reset email is configured, so we never offer
+         a recovery route that can't actually deliver. -->
+    <div class="auth-switch" id="forgot-wrap" style="display:none;margin-top:10px;">
+      <a onclick="requestPasswordReset()">Forgot your password?</a>
+    </div>
+    <div id="forgot-result" style="text-align:center;font-size:13px;margin-top:8px;line-height:1.5;"></div>
   </div>
 </div>
 
@@ -822,6 +828,10 @@ fetch('/api/config')
   .then(cfg => {
     subdomainsEnabled = Boolean(cfg.subdomainsEnabled);
     subdomainSuffix = cfg.subdomainSuffix;
+    if (cfg.passwordResetEnabled) {
+      const fw = document.getElementById('forgot-wrap');
+      if (fw) fw.style.display = 'block';
+    }
     if (subdomainsEnabled) {
       document.querySelectorAll('.subdomain-feature').forEach(el => { el.style.display = ''; });
     }
@@ -1950,6 +1960,31 @@ async function saveCustomDomain(uuid) {
    local plan hides the one control that would fix the mismatch. */
 /* Accounts rebuilt from a token have no password. Offer to set one while the
    session is still valid — otherwise the owner is locked out for good. */
+async function requestPasswordReset() {
+  const email = (document.getElementById('auth-email')?.value || '').trim();
+  const out = document.getElementById('forgot-result');
+  if (!email) {
+    out.textContent = 'Enter your email address above first.';
+    out.style.color = 'var(--danger)';
+    return;
+  }
+  out.textContent = 'Sending…';
+  out.style.color = 'var(--text-muted)';
+  try {
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not send reset email');
+    out.textContent = data.message || 'Check your inbox for a reset link.';
+    out.style.color = 'var(--success)';
+  } catch (e) {
+    out.textContent = e.message;
+    out.style.color = 'var(--danger)';
+  }
+}
+
 async function checkNeedsPassword() {
   if (!authToken) return;
   try {
