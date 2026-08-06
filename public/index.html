@@ -530,6 +530,69 @@
           </div>
         </div>
 
+        <!-- About section -->
+        <div class="copy-section-block">
+          <div class="copy-section-hdr">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">Your story</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">The section with your photo and background</div>
+            </div>
+            <label class="tog">
+              <input type="checkbox" id="show-about" checked onchange="toggleFields('about-fields', this.checked)">
+              <span class="tog-tk"></span>
+            </label>
+          </div>
+          <div class="copy-section-fields" id="about-fields">
+            <input type="text" class="copy-field" id="about-eyebrow" placeholder="Our Story" maxlength="30">
+            <input type="text" class="copy-field" id="about-title" placeholder="Heading (leave blank to auto-write)" maxlength="70">
+          </div>
+        </div>
+
+        <!-- Why choose us -->
+        <div class="copy-section-block">
+          <div class="copy-section-hdr">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">Why choose us</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Three cards — leave blank to use our wording</div>
+            </div>
+            <label class="tog">
+              <input type="checkbox" id="show-services" checked onchange="toggleFields('services-fields', this.checked)">
+              <span class="tog-tk"></span>
+            </label>
+          </div>
+          <div class="copy-section-fields" id="services-fields">
+            <input type="text" class="copy-field" id="services-title" placeholder="What makes us different" maxlength="60">
+            <input type="text" class="copy-field" id="feat-1-title" placeholder="Card 1 heading — e.g. Quality First" maxlength="30">
+            <input type="text" class="copy-field" id="feat-1-text" placeholder="Card 1 description" maxlength="120">
+            <input type="text" class="copy-field" id="feat-2-title" placeholder="Card 2 heading" maxlength="30">
+            <input type="text" class="copy-field" id="feat-2-text" placeholder="Card 2 description" maxlength="120">
+            <input type="text" class="copy-field" id="feat-3-title" placeholder="Card 3 heading" maxlength="30">
+            <input type="text" class="copy-field" id="feat-3-text" placeholder="Card 3 description" maxlength="120">
+          </div>
+        </div>
+
+        <!-- Testimonial: off unless they write a real one -->
+        <div class="copy-section-block">
+          <div class="copy-section-hdr">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">Client review</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Only use a real quote from a real client</div>
+            </div>
+            <label class="tog">
+              <input type="checkbox" id="show-testimonial" onchange="toggleFields('testimonial-fields', this.checked)">
+              <span class="tog-tk"></span>
+            </label>
+          </div>
+          <div class="copy-section-fields" id="testimonial-fields" style="display:none;">
+            <input type="text" class="copy-field" id="testimonial-quote" placeholder="What your client actually said" maxlength="240">
+            <input type="text" class="copy-field" id="testimonial-author" placeholder="Their name" maxlength="40">
+            <div style="font-size:11px;color:var(--text-muted);line-height:1.5;">
+              We won't publish this section unless you fill it in — inventing reviews can breach
+              advertising rules, and it's your business that carries the risk.
+            </div>
+          </div>
+        </div>
+
         <!-- CTA section -->
         <div class="copy-section-block">
           <div class="copy-section-hdr">
@@ -537,12 +600,26 @@
               <div style="font-size:14px;font-weight:600;color:var(--text);">Bottom call-to-action</div>
               <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">The big banner at the bottom of the page</div>
             </div>
+            <label class="tog">
+              <input type="checkbox" id="show-cta" checked onchange="toggleFields('cta-fields', this.checked)">
+              <span class="tog-tk"></span>
+            </label>
           </div>
-          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+          <div class="copy-section-fields" id="cta-fields">
             <input type="text" class="copy-field" id="cta-headline" placeholder="Ready to get started?" maxlength="60">
             <input type="text" class="copy-field" id="cta-subtext" placeholder="Join the people already working with us." maxlength="120">
           </div>
         </div>
+      </div>
+
+      <!-- Where each button sends visitors -->
+      <div class="field">
+        <label>Where your buttons go <span class="hint">— email, phone, or a link</span></label>
+        <div style="font-size:12px;color:var(--text-muted);margin:-4px 0 10px;line-height:1.5;">
+          Set what happens when someone clicks. Leave a button on "Scroll to a section"
+          to keep visitors on the page.
+        </div>
+        <div id="button-config"></div>
       </div>
 
       <div class="nav-buttons">
@@ -886,7 +963,7 @@ function startWizard() {
 
 function startOver() {
   // Reset state
-  Object.assign(state, { bizName:'', tagline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', showTrustBar:true, trust1:'', trust2:'', trust3:'', trust4:'', ctaHeadline:'', ctaSubtext:'', designStyle:null });
+  Object.assign(state, { bizName:'', tagline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', showTrustBar:true, trust1:'', trust2:'', trust3:'', trust4:'', ctaHeadline:'', ctaSubtext:'', designStyle:null, sections:{about:true,services:true,testimonial:false,cta:true}, aboutEyebrow:'', aboutTitle:'', servicesTitle:'', features:[{title:'',text:''},{title:'',text:''},{title:'',text:''}], testimonialQuote:'', testimonialAuthor:'', buttons:null });
   document.getElementById('share-box').classList.remove('show');
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('btn-share').textContent = '🔗 Save & Share';
@@ -988,7 +1065,129 @@ function collectStep(step) {
     state.trust4 = document.getElementById('trust-4').value.trim();
     state.ctaHeadline = document.getElementById('cta-headline').value.trim();
     state.ctaSubtext = document.getElementById('cta-subtext').value.trim();
+
+    // Which sections appear
+    state.sections = {
+      about: document.getElementById('show-about').checked,
+      services: document.getElementById('show-services').checked,
+      testimonial: document.getElementById('show-testimonial').checked,
+      cta: document.getElementById('show-cta').checked,
+    };
+
+    state.aboutEyebrow = document.getElementById('about-eyebrow').value.trim();
+    state.aboutTitle = document.getElementById('about-title').value.trim();
+    state.servicesTitle = document.getElementById('services-title').value.trim();
+    state.features = [1,2,3].map(i => ({
+      title: document.getElementById('feat-'+i+'-title').value.trim(),
+      text: document.getElementById('feat-'+i+'-text').value.trim(),
+    }));
+    state.testimonialQuote = document.getElementById('testimonial-quote').value.trim();
+    state.testimonialAuthor = document.getElementById('testimonial-author').value.trim();
+
+    state.buttons = collectButtons();
   }
+}
+
+/* ═══════════════════════════════════════════════════
+   BUTTON DESTINATIONS
+   Every CTA used to be a dead <button>. These control
+   what actually happens when a visitor clicks.
+═══════════════════════════════════════════════════ */
+const BUTTON_DEFS = [
+  { key:'nav',      name:'Header button',        note:'Top right of the page' },
+  { key:'heroMain', name:'Main button',          note:'The big one under your headline' },
+  { key:'heroAlt',  name:'Secondary button',     note:'Next to the main one' },
+  { key:'about',    name:'Story section button', note:'Below your background text' },
+  { key:'final',    name:'Bottom button',        note:'In the closing banner' },
+];
+
+const ACTION_PLACEHOLDER = {
+  email: 'you@yourbusiness.com',
+  phone: '+61 400 000 000',
+  url: 'yourbooking.com/schedule',
+  section: '',
+  none: '',
+};
+
+function renderButtonConfig() {
+  const wrap = document.getElementById('button-config');
+  if (!wrap) return;
+  wrap.innerHTML = BUTTON_DEFS.map(b => `
+    <div class="copy-section-block" style="margin-bottom:8px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);">${b.name}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin:2px 0 8px;">${b.note}</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <input type="text" class="copy-field" id="btn-${b.key}-label" placeholder="Button text" maxlength="24">
+        <select class="copy-field" id="btn-${b.key}-type" onchange="onButtonTypeChange('${b.key}')">
+          <option value="section">Scroll down the page</option>
+          <option value="email">Open an email</option>
+          <option value="phone">Call a phone number</option>
+          <option value="url">Go to a web link</option>
+          <option value="none">Do nothing</option>
+        </select>
+        <select class="copy-field" id="btn-${b.key}-section">
+          <option value="contact">…to the contact banner</option>
+          <option value="about">…to the story section</option>
+          <option value="services">…to why choose us</option>
+        </select>
+        <input type="text" class="copy-field" id="btn-${b.key}-value" placeholder="" style="display:none;">
+      </div>
+    </div>`).join('');
+  BUTTON_DEFS.forEach(b => onButtonTypeChange(b.key));
+}
+
+// Show only the field that matches the chosen destination type
+function onButtonTypeChange(key) {
+  const type = document.getElementById('btn-'+key+'-type').value;
+  const sectionEl = document.getElementById('btn-'+key+'-section');
+  const valueEl = document.getElementById('btn-'+key+'-value');
+  sectionEl.style.display = type === 'section' ? '' : 'none';
+  valueEl.style.display = (type === 'email' || type === 'phone' || type === 'url') ? '' : 'none';
+  valueEl.placeholder = ACTION_PLACEHOLDER[type] || '';
+}
+
+function collectButtons() {
+  const out = {};
+  BUTTON_DEFS.forEach(b => {
+    const type = document.getElementById('btn-'+b.key+'-type').value;
+    const label = document.getElementById('btn-'+b.key+'-label').value.trim();
+    const value = type === 'section'
+      ? document.getElementById('btn-'+b.key+'-section').value
+      : document.getElementById('btn-'+b.key+'-value').value.trim();
+    out[b.key] = { label, type, value };
+  });
+  return out;
+}
+
+function fillButtonConfig(buttons) {
+  BUTTON_DEFS.forEach(b => {
+    const cfg = (buttons && buttons[b.key]) || {};
+    const labelEl = document.getElementById('btn-'+b.key+'-label');
+    const typeEl = document.getElementById('btn-'+b.key+'-type');
+    if (!labelEl || !typeEl) return;
+    labelEl.value = cfg.label || '';
+    typeEl.value = cfg.type || 'section';
+    if ((cfg.type || 'section') === 'section') {
+      document.getElementById('btn-'+b.key+'-section').value = cfg.value || 'contact';
+    } else {
+      document.getElementById('btn-'+b.key+'-value').value = cfg.value || '';
+    }
+    onButtonTypeChange(b.key);
+  });
+}
+
+// Generic show/hide for a section's fields when its toggle flips
+function toggleFields(id, on) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = on ? '' : 'none';
+}
+
+// Bootstrap the button rows. Declared here, after BUTTON_DEFS exists — hooking
+// this up earlier risks running before the const initialises.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', renderButtonConfig);
+} else {
+  renderButtonConfig();
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1328,6 +1527,15 @@ async function editSite(uuid) {
       differentiator: data.differentiator || '',
       ctaType: data.ctaType || 'Book a Call',
       designStyle: data.designStyle || null,
+      sections: Object.assign({about:true,services:true,testimonial:false,cta:true}, data.sections || {}),
+      aboutEyebrow: data.aboutEyebrow || '',
+      aboutTitle: data.aboutTitle || '',
+      servicesTitle: data.servicesTitle || '',
+      features: (data.features && data.features.length ? data.features : [{},{},{}])
+        .map(f => ({ title: (f && f.title) || '', text: (f && f.text) || '' })),
+      testimonialQuote: data.testimonialQuote || '',
+      testimonialAuthor: data.testimonialAuthor || '',
+      buttons: data.buttons || null,
     });
 
     // Set edit mode
@@ -1358,6 +1566,28 @@ async function editSite(uuid) {
     document.getElementById('problem').value = state.problem;
     document.getElementById('differentiator').value = state.differentiator;
     document.getElementById('cta-type').value = state.ctaType;
+
+    // New section toggles + editable copy
+    const secs = state.sections || {};
+    [['show-about','about-fields','about'],
+     ['show-services','services-fields','services'],
+     ['show-testimonial','testimonial-fields','testimonial'],
+     ['show-cta','cta-fields','cta']].forEach(([box, fields, key]) => {
+      const el = document.getElementById(box);
+      if (!el) return;
+      el.checked = secs[key] !== false && !(key === 'testimonial' && secs[key] !== true);
+      toggleFields(fields, el.checked);
+    });
+    document.getElementById('about-eyebrow').value = state.aboutEyebrow;
+    document.getElementById('about-title').value = state.aboutTitle;
+    document.getElementById('services-title').value = state.servicesTitle;
+    (state.features || []).slice(0,3).forEach((f, i) => {
+      document.getElementById('feat-'+(i+1)+'-title').value = f.title || '';
+      document.getElementById('feat-'+(i+1)+'-text').value = f.text || '';
+    });
+    document.getElementById('testimonial-quote').value = state.testimonialQuote;
+    document.getElementById('testimonial-author').value = state.testimonialAuthor;
+    fillButtonConfig(state.buttons);
 
     // Font style
     document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('selected'));
