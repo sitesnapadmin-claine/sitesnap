@@ -1466,7 +1466,7 @@ async function syncPlan() {
       headers: { Authorization: `Bearer ${authToken}` }
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
+    if (!res.ok) { if (res.status === 403) revealRestoreOption(); throw new Error(data.error || 'Failed'); }
 
     // Update auth state with new plan + token
     authPlan = data.plan;
@@ -1653,7 +1653,7 @@ async function saveSubdomain(uuid) {
       body: JSON.stringify({ subdomain: sub })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
+    if (!res.ok) { if (res.status === 403) revealRestoreOption(); throw new Error(data.error || 'Failed'); }
     resultEl.textContent = `✓ Live at: ${data.url}`;
     resultEl.className = 'domain-result success';
   } catch(e) {
@@ -1676,7 +1676,7 @@ async function saveCustomDomain(uuid) {
       body: JSON.stringify({ domain })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
+    if (!res.ok) { if (res.status === 403) revealRestoreOption(); throw new Error(data.error || 'Failed'); }
 
     resultEl.textContent = `✓ Saved — now finish the DNS setup below`;
     resultEl.className = 'domain-result success';
@@ -1699,6 +1699,14 @@ async function saveCustomDomain(uuid) {
     resultEl.textContent = '✗ ' + e.message;
     resultEl.className = 'domain-result error';
   }
+}
+
+/* If the server rejects a paid feature, surface the restore link even to users
+   whose browser thinks they're already on a paid plan. Without this, a stale
+   local plan hides the one control that would fix the mismatch. */
+function revealRestoreOption() {
+  const wrap = document.getElementById('restore-plan-wrap');
+  if (wrap) wrap.style.display = 'block';
 }
 
 function renderDnsRecords(records, opts) {
