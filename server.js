@@ -42,6 +42,9 @@ const CNAME_TARGET =
   'sitesnap-production-b50b.up.railway.app';
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 
+// Only this account can read /api/_diag. Unset = the endpoint doesn't exist.
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
+
 // ── RAILWAY API ────────────────────────────────────────────────────────────────
 // Lets us register customer domains with Railway automatically instead of
 // adding each one by hand in the dashboard. If these aren't set, the app falls
@@ -489,6 +492,20 @@ app.get('/api/me', requireAuth, async (req, res) => {
 // Reports which Railway project/service is serving this app and whether storage
 // is durable. Read-only, no secrets: token presence is reported as a boolean.
 app.get('/api/_diag', async (req, res) => {
+  // Admin only. Every rejection returns a plain 404 rather than 401/403 so the
+  // endpoint doesn't advertise its own existence to anyone probing for it.
+  if (!ADMIN_EMAIL) return res.status(404).send(notFoundHtml());
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(404).send(notFoundHtml());
+  try {
+    const claims = jwt.verify(token, JWT_SECRET);
+    if ((claims.email || '').toLowerCase() !== ADMIN_EMAIL) {
+      return res.status(404).send(notFoundHtml());
+    }
+  } catch {
+    return res.status(404).send(notFoundHtml());
+  }
+
   const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
 
   // Postgres returns COUNT as a string, SQLite as a number — normalise both
