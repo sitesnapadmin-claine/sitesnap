@@ -187,7 +187,9 @@ function formatDnsRecords(rwDomain) {
     //
     // The TXT host is "_railway-verify." prefixed onto the same label as the
     // routing record (e.g. _railway-verify.shop for shop.example.com).
-    const routingHost = records[0]?.host;
+    // For wildcards the routing label is "*.sites" but the TXT drops the star:
+    // "_railway-verify.sites", not "_railway-verify.*.sites".
+    const routingHost = (records[0]?.host || '').replace(/^\*\./, '');
     const txtHost = routingHost && routingHost !== '@'
       ? `_railway-verify.${routingHost}`
       : '_railway-verify';
