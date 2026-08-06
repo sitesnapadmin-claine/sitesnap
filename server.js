@@ -219,6 +219,10 @@ function formatDnsRecords(rwDomain) {
   return records;
 }
 
+// How many websites each plan may own. Editing a site is always allowed —
+// this caps creation only.
+const SITE_LIMITS = { free: 1, starter: 1, pro: Infinity };
+
 // ── PLANS ──────────────────────────────────────────────────────────────────────
 const PLANS = {
   starter: { name: 'Starter', price: 2900, mode: 'payment',      label: '$29 one-time' },
@@ -653,6 +657,23 @@ app.post('/api/sites', requireAuth, async (req, res) => {
   if (!data) return res.status(400).json({ error: 'Site data is required' });
   const user = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
   const plan = user?.plan || 'free';
+
+  // Site allowance per plan. Starter is a one-time payment, so leaving it
+  // unlimited would let $29 buy what the recurring Pro plan is meant to sell.
+  const limit = SITE_LIMITS[plan] ?? SITE_LIMITS.free;
+  if (limit !== Infinity) {
+    const row = await dbGet('SELECT COUNT(*) AS c FROM sites WHERE user_id = ?', req.user.id);
+    const owned = Number(row?.c || 0);
+    if (owned >= limit) {
+      return res.status(403).json({
+        error: plan === 'pro'
+          ? 'Site limit reached.'
+          : `Your ${plan} plan includes ${limit} website. Upgrade to Pro to build more.`,
+        limitReached: true, limit, owned, plan,
+      });
+    }
+  }
+
   const uuid = uuidv4();
   await dbRun('INSERT INTO sites (uuid, user_id, data) VALUES (?, ?, ?)', uuid, req.user.id, JSON.stringify(data));
   res.json({ uuid, url: `${BASE_URL}/preview/${uuid}`, plan });
@@ -993,6 +1014,57 @@ async function buildWebsite(s, uuid, baseUrl) {
   const loc = s.location ? ` · ${s.location}` : '';
   const f = getTheme(s);
 
+  // Which sections to render. Anything unset defaults to visible so existing
+  // sites are unchanged — except the testimonial, which is opt-in.
+  const sec = s.sections || {};
+  const hasRealTestimonial = Boolean((s.testimonialQuote || '').trim());
+  const show = {
+    about: sec.about !== false,
+    services: sec.services !== false,
+    // Never invent a review. The old build shipped a fabricated quote from
+    // "A Happy Client" on every site, which is the customer's legal exposure,
+    // not ours to create. Only renders once they've written a real one.
+    testimonial: sec.testimonial === true && hasRealTestimonial,
+    cta: sec.cta !== false,
+  };
+
+  // Feature cards: owner-editable, falling back to the generic copy
+  const defaultFeat = [
+    { icon: f.feat1, title: 'Quality First',  text: 'Everything we do is crafted with care and relentless attention to detail.' },
+    { icon: f.feat2, title: 'Personal Touch', text: "You're not a ticket number — we tailor our approach to your unique situation." },
+    { icon: f.feat3, title: 'Real Results',   text: 'Our clients see measurable, meaningful outcomes every single time.' },
+  ];
+  const feat = defaultFeat.map((d, i) => {
+    const c = (s.features && s.features[i]) || {};
+    return {
+      icon: c.icon || d.icon,
+      title: (c.title || '').trim() || d.title,
+      text: (c.text || '').trim() || d.text,
+    };
+  });
+
+  // A button pointing at a section the owner switched off would be a dead
+  // anchor, so retarget it to a section that still exists (or drop the link).
+  const sectionVisible = { about: show.about, services: show.services, contact: show.cta };
+  const safeCta = (key, fallbackLabel, fallbackSection) => {
+    const a = Object.assign({}, ctaFor(s, key, fallbackLabel, fallbackSection));
+    if ((a.type || 'section') === 'section') {
+      const target = String(a.value || 'contact').replace(/^#/, '');
+      if (!sectionVisible[target]) {
+        const alt = ['contact', 'about', 'services'].find(k => sectionVisible[k]);
+        if (alt) a.value = alt; else a.type = 'none';
+      }
+    }
+    return a;
+  };
+
+  // Nav links must not point at sections that were switched off
+  const navLinksHtml = [
+    show.about ? '<a href="#about">About</a>' : '',
+    show.services ? '<a href="#services">Services</a>' : '',
+    show.cta ? '<a href="#contact">Contact</a>' : '',
+  ].join('');
+
   // Check if this site has badge removed (Starter+ user)
   const siteRow = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', uuid);
   let showBadge = true;
@@ -1035,7 +1107,7 @@ body{font-family:${f.bodyFont};background:${f.bg};color:${f.text};line-height:1.
 a{text-decoration:none;color:inherit;}
 nav{background:${f.navBg};padding:18px 48px;display:flex;align-items:center;justify-content:space-between;border-bottom:${f.navBorder};position:sticky;top:0;z-index:100;}
 .nav-links{display:flex;gap:32px;font-size:14px;font-weight:500;color:${f.navText};opacity:0.8;}
-.nav-cta{padding:10px 24px;background:${f.primary};color:${f.ctaText};border-radius:${f.btnRadius};font-size:14px;font-weight:700;cursor:pointer;border:none;}
+.nav-cta{display:inline-block;text-decoration:none;padding:10px 24px;background:${f.primary};color:${f.ctaText};border-radius:${f.btnRadius};font-size:14px;font-weight:700;cursor:pointer;border:none;}
 .hero{padding:${f.heroPadding};background:${f.heroBg};display:grid;grid-template-columns:1fr ${f.heroImgCol};gap:64px;align-items:center;${f.heroExtra}}
 .hero-img-wrap{border-radius:${f.imgRadius};overflow:hidden;aspect-ratio:4/3;background:${f.heroImgBg};display:flex;align-items:center;justify-content:center;${f.heroImgExtra}}
 .hero h1{font-family:${f.headFont};font-size:clamp(32px,5vw,58px);font-weight:${f.heroWeight};line-height:1.1;color:${f.heroText};margin-bottom:20px;letter-spacing:${f.heroTracking};}
@@ -1043,9 +1115,9 @@ nav{background:${f.navBg};padding:18px 48px;display:flex;align-items:center;just
 .hero-eyebrow{font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${f.accent};margin-bottom:16px;}
 .hero-sub{font-size:17px;color:${f.heroSubText};max-width:480px;margin-bottom:36px;line-height:1.6;}
 .hero-btns{display:flex;gap:16px;flex-wrap:wrap;}
-.btn-p{padding:16px 36px;background:${f.primary};color:${f.ctaText};border-radius:${f.btnRadius};font-size:16px;font-weight:700;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform 0.15s;}
+.btn-p{text-decoration:none;padding:16px 36px;background:${f.primary};color:${f.ctaText};border-radius:${f.btnRadius};font-size:16px;font-weight:700;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform 0.15s;}
 .btn-p:hover{transform:translateY(-2px);}
-.btn-s{padding:16px 32px;background:transparent;color:${f.heroText};border-radius:${f.btnRadius};font-size:16px;font-weight:600;border:2px solid ${f.heroBorder};cursor:pointer;}
+.btn-s{display:inline-block;text-decoration:none;padding:16px 32px;background:transparent;color:${f.heroText};border-radius:${f.btnRadius};font-size:16px;font-weight:600;border:2px solid ${f.heroBorder};cursor:pointer;}
 .trust-bar{padding:20px 48px;background:${f.trustBg};border-top:${f.trustBorder};border-bottom:${f.trustBorder};display:flex;align-items:center;justify-content:center;gap:48px;flex-wrap:wrap;}
 .trust-item{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:${f.trustText};opacity:0.75;}
 .trust-dot{width:6px;height:6px;border-radius:50%;background:${f.accent};}
@@ -1080,15 +1152,15 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
 </style></head><body>
 <nav>
   ${logoHtml}
-  <div class="nav-links"><a href="#about">About</a><a href="#services">Services</a><a href="#contact">Contact</a></div>
-  <button class="nav-cta">${escHtml(cta)}</button>
+  <div class="nav-links">${navLinksHtml}</div>
+  ${renderCta(safeCta('nav',cta,'contact'), cta, 'nav-cta')}
 </nav>
 <div class="hero">
   <div>
     <div class="hero-eyebrow">${escHtml(s.industry || 'Premium Service')}${escHtml(loc)}</div>
     <h1>${heroHeadline(name, s.industry)}</h1>
     <p class="hero-sub">${escHtml(tagline)}</p>
-    <div class="hero-btns"><button class="btn-p">${escHtml(cta)} →</button><button class="btn-s">Learn More</button></div>
+    <div class="hero-btns">${renderCta(safeCta('heroMain',cta+' →','contact'), cta+' →', 'btn-p')}${renderCta(safeCta('heroAlt','Learn More','about'), 'Learn More', 'btn-s')}</div>
   </div>
   <div class="hero-img-wrap">${heroImg}</div>
 </div>
@@ -1098,46 +1170,44 @@ ${s.showTrustBar !== false ? `<div class="trust-bar">
   <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust3 || '100% satisfaction')}</div>
   <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust4 || s.location || 'Available online')}</div>
 </div>` : ''}
-<section class="about" id="about">
+${show.about ? `<section class="about" id="about">
   <div class="about-grid">
     <div class="about-img">${aboutImg}</div>
     <div>
-      <div class="eyebrow">Our Story</div>
-      <div class="section-title">We exist for ${escHtml(audience.split(' ').slice(0,6).join(' '))}…</div>
+      <div class="eyebrow">${escHtml(s.aboutEyebrow || 'Our Story')}</div>
+      <div class="section-title">${escHtml(s.aboutTitle || ('We exist for ' + audience.split(' ').slice(0,6).join(' ') + '…'))}</div>
       <p>${escHtml(problem)}</p>
       <p>${escHtml(diff)}</p>
-      <button class="btn-p" style="margin-top:16px;">${escHtml(cta)} →</button>
+      ${renderCta(safeCta('about',cta+' →','contact'), cta+' →', 'btn-p', 'margin-top:16px;')}
     </div>
   </div>
-</section>
-<section class="features" id="services">
+</section>` : ''}
+${show.services ? `<section class="features" id="services">
   <div style="text-align:center;max-width:600px;margin:0 auto 52px;">
-    <div class="eyebrow">Why Choose Us</div>
-    <div class="section-title">What makes ${escHtml(name)} different</div>
-    <div class="section-sub">We don't just talk the talk — here's what you can expect every single time.</div>
+    <div class="eyebrow">${escHtml(s.servicesEyebrow || 'Why Choose Us')}</div>
+    <div class="section-title">${escHtml(s.servicesTitle || ('What makes ' + name + ' different'))}</div>
+    <div class="section-sub">${escHtml(s.servicesSub || "We don't just talk the talk — here's what you can expect every single time.")}</div>
   </div>
   <div class="features-grid">
-    <div class="feature-card"><div class="feature-icon">${f.feat1}</div><div class="feature-title">Quality First</div><div class="feature-text">Everything we do is crafted with care and relentless attention to detail.</div></div>
-    <div class="feature-card"><div class="feature-icon">${f.feat2}</div><div class="feature-title">Personal Touch</div><div class="feature-text">You're not a ticket number — we tailor our approach to your unique situation.</div></div>
-    <div class="feature-card"><div class="feature-icon">${f.feat3}</div><div class="feature-title">Real Results</div><div class="feature-text">Our clients see measurable, meaningful outcomes every single time.</div></div>
+    ${feat.map(c => `<div class="feature-card"><div class="feature-icon">${c.icon}</div><div class="feature-title">${escHtml(c.title)}</div><div class="feature-text">${escHtml(c.text)}</div></div>`).join('')}
   </div>
-</section>
-<section class="testimonial-section">
-  <div class="eyebrow" style="text-align:center;margin-bottom:32px;">What Clients Say</div>
+</section>` : ''}
+${show.testimonial ? `<section class="testimonial-section">
+  <div class="eyebrow" style="text-align:center;margin-bottom:32px;">${escHtml(s.testimonialEyebrow || 'What Clients Say')}</div>
   <div class="testimonial-card">
     <div class="quote-mark">"</div>
-    <div class="quote-text">Working with ${escHtml(name)} completely changed everything for me. I came in not knowing what to expect and left with exactly what I needed — and more.</div>
-    <div class="quote-author">— A Happy Client${escHtml(loc ? ', ' + loc : '')}</div>
+    <div class="quote-text">${escHtml(s.testimonialQuote)}</div>
+    <div class="quote-author">— ${escHtml(s.testimonialAuthor || 'Client')}</div>
   </div>
-</section>
-<section class="cta-section" id="contact">
+</section>` : ''}
+${show.cta ? `<section class="cta-section" id="contact">
   <h2>${escHtml(s.ctaHeadline || 'Ready to get started?')}</h2>
-  <p>${escHtml(s.ctaSubtext || `Join the people already working with ${name}. Your journey begins with one simple step.`)}</p>
-  <button class="btn-p" style="background:${f.ctaSectionBtn};color:${f.ctaSectionBtnText};font-size:17px;padding:18px 44px;">${escHtml(cta)} →</button>
-</section>
+  <p>${escHtml(s.ctaSubtext || ('Join the people already working with ' + name + '. Your journey begins with one simple step.'))}</p>
+  ${renderCta(safeCta('final',cta+' →','contact'), cta+' →', 'btn-p', `background:${f.ctaSectionBtn};color:${f.ctaSectionBtnText};font-size:17px;padding:18px 44px;`)}
+</section>` : ''}
 <footer>
   <div class="footer-name">${escHtml(name)}</div>
-  <div class="footer-links"><a href="#">Privacy</a><a href="#">Terms</a><a href="#contact">Contact</a></div>
+  <div class="footer-links">${show.cta ? '<a href="#contact">Contact</a>' : ''}</div>
   <div class="footer-copy">© ${new Date().getFullYear()} ${escHtml(name)}. All rights reserved.</div>
 </footer>
 ${badge}
@@ -1147,6 +1217,56 @@ ${badge}
 // ── HELPERS ────────────────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── CTA BUTTONS ────────────────────────────────────────────────────────────────
+// Turn a button's configured action into a real href. Previously every CTA was
+// a bare <button> with no handler, so visitors clicking "Book a Call" got
+// nothing — the entire conversion path on every generated site was dead.
+function buttonHref(action) {
+  if (!action) return null;
+  const type = action.type || 'section';
+  const raw = String(action.value ?? '').trim();
+
+  if (type === 'none') return null;
+  if (type === 'section') return '#' + (raw || 'contact').replace(/^#/, '');
+  if (!raw) return null;
+
+  if (type === 'email') {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return null;
+    return 'mailto:' + raw;
+  }
+  if (type === 'phone') {
+    const digits = raw.replace(/[^\d+]/g, '');
+    return digits ? 'tel:' + digits : null;
+  }
+  if (type === 'url') {
+    // Anything not plainly http(s) gets prefixed, which also neutralises
+    // javascript: and data: payloads rather than emitting them as-is.
+    const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^\/+/, '');
+    return /^https?:\/\/[^\s/$.?#][^\s]*$/i.test(url) ? url : null;
+  }
+  return null;
+}
+
+// Renders an <a> when the button leads somewhere, and a disabled-looking
+// <button> only when the owner explicitly chose "no link".
+function renderCta(action, fallbackLabel, cls, extraStyle) {
+  const label = escHtml((action && action.label) || fallbackLabel);
+  const href = buttonHref(action);
+  const style = extraStyle ? ` style="${extraStyle}"` : '';
+  if (!href) return `<button class="${cls}"${style}>${label}</button>`;
+  const external = /^https?:\/\//i.test(href);
+  const rel = external ? ' target="_blank" rel="noopener noreferrer"' : '';
+  return `<a class="${cls}" href="${escHtml(href)}"${rel}${style}>${label}</a>`;
+}
+
+// Existing sites predate per-button config — fall back to the old single
+// ctaType label pointing at the contact section so nothing regresses.
+function ctaFor(s, key, fallbackLabel, fallbackSection) {
+  const configured = s && s.buttons && s.buttons[key];
+  if (configured && (configured.label || configured.type)) return configured;
+  return { label: fallbackLabel, type: 'section', value: fallbackSection || 'contact' };
 }
 function heroHeadline(name, industry) {
   const map = {'Photography':`Capturing your story,<br><em>beautifully.</em>`,'Beauty & Wellness':`Feel your best,<br><em>inside &amp; out.</em>`,'Food & Beverage':`Made with love,<br><em>served with pride.</em>`,'Fashion & Apparel':`Style that speaks<br><em>for itself.</em>`,'Health & Fitness':`Your strongest self<br><em>starts here.</em>`,'Home & Interior':`Spaces you'll<br><em>love to live in.</em>`,'Art & Creative':`Art that moves<br><em>the world.</em>`,'Coaching & Consulting':`Clarity, strategy,<br><em>results.</em>`,'Real Estate':`Find the home<br><em>you deserve.</em>`,'Technology':`Built for the<br><em>future, today.</em>`,'Retail / E-commerce':`Shop smarter,<br><em>live better.</em>`,'Non-profit':`Making a difference,<br><em>together.</em>`};
