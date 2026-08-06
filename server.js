@@ -465,6 +465,13 @@ async function requireAuth(req, res, next) {
   }
 }
 
+// Accounts rebuilt from a JWT have no password — a JWT never carries one — so
+// they get a placeholder that bcrypt can never match. Detect that state instead
+// of leaving the owner permanently unable to sign in.
+function isUsablePasswordHash(hash) {
+  return /^\$2[aby]\$/.test(String(hash || ''));
+}
+
 function requirePlan(plan) {
   const order = ['free', 'starter', 'pro'];
   return async (req, res, next) => {
@@ -503,6 +510,16 @@ app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
   const user = await dbGet('SELECT * FROM users WHERE email = ?', email?.toLowerCase().trim());
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
+
+  // Recreated-from-token accounts genuinely have no password. Saying "invalid
+  // password" would be misleading and unfixable — tell them what to do instead.
+  if (!isUsablePasswordHash(user.password_hash)) {
+    return res.status(409).json({
+      error: 'This account needs a new password. Open SiteSnap in the browser where you were last signed in, then use "Set a password".',
+      code: 'PASSWORD_NOT_SET',
+    });
+  }
+
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
   const token = jwt.sign({ id: user.id, email: user.email, plan: user.plan || 'free' }, JWT_SECRET, { expiresIn: '30d' });
@@ -510,9 +527,10 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, plan, created_at FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, plan, created_at, password_hash FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json(user);
+  const { password_hash, ...safe } = user;
+  res.json({ ...safe, needsPassword: !isUsablePasswordHash(password_hash) });
 });
 
 // ── DEPLOYMENT DIAGNOSTICS ─────────────────────────────────────────────────────
@@ -572,6 +590,24 @@ app.get('/api/_diag', async (req, res) => {
     },
     cnameTarget: CNAME_TARGET,
   });
+});
+
+// ── SET PASSWORD ───────────────────────────────────────────────────────────────
+// Recovery for accounts rebuilt from a token, and ordinary password changes.
+// Requires a valid session, so possession of the JWT is the proof of identity.
+app.post('/api/auth/set-password', requireAuth, async (req, res) => {
+  const { password } = req.body || {};
+  if (!password || String(password).length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+  try {
+    const hash = await bcrypt.hash(String(password), 10);
+    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', hash, req.user.id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('set-password error:', e.message);
+    res.status(500).json({ error: 'Could not update password' });
+  }
 });
 
 // ── PUBLIC CONFIG ──────────────────────────────────────────────────────────────
