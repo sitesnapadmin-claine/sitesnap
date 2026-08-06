@@ -629,7 +629,7 @@
           <div class="copy-section-hdr">
             <div>
               <div style="font-size:14px;font-weight:600;color:var(--text);">Client reviews</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Only use real quotes from real clients — up to 3</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Only use real quotes from real clients — up to 9</div>
             </div>
             <label class="tog">
               <input type="checkbox" id="show-testimonial" onchange="toggleFields('testimonial-fields', this.checked)">
@@ -638,12 +638,8 @@
           </div>
           <div class="copy-section-fields" id="testimonial-fields" style="display:none;">
             <input type="text" class="copy-field" id="testimonial-eyebrow" placeholder="What Clients Say" maxlength="30" style="grid-column:1/-1;">
-            <input type="text" class="copy-field" id="testimonial-1-quote" placeholder="Review 1 — what your client actually said" maxlength="240">
-            <input type="text" class="copy-field" id="testimonial-1-author" placeholder="Their name" maxlength="40">
-            <input type="text" class="copy-field" id="testimonial-2-quote" placeholder="Review 2 (optional)" maxlength="240">
-            <input type="text" class="copy-field" id="testimonial-2-author" placeholder="Their name" maxlength="40">
-            <input type="text" class="copy-field" id="testimonial-3-quote" placeholder="Review 3 (optional)" maxlength="240">
-            <input type="text" class="copy-field" id="testimonial-3-author" placeholder="Their name" maxlength="40">
+            <div id="testimonial-blocks" style="grid-column:1/-1;display:flex;flex-direction:column;gap:10px;"></div>
+            <button type="button" class="btn-back" id="btn-add-testimonial" style="grid-column:1/-1;padding:10px;" onclick="addTestimonialBlock()">+ Add another review</button>
             <div style="font-size:11px;color:var(--text-muted);line-height:1.5;grid-column:1/-1;">
               Any review left blank just won't be published — inventing reviews can breach
               advertising rules, and it's your business that carries the risk.
@@ -1044,7 +1040,8 @@ function startWizard() {
 
 function startOver() {
   // Reset state
-  Object.assign(state, { bizName:'', tagline:'', heroHeadline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', showTrustBar:true, trust1:'', trust2:'', trust3:'', trust4:'', ctaHeadline:'', ctaSubtext:'', designStyle:null, sections:{about:true,services:true,testimonial:false,cta:true}, aboutEyebrow:'', aboutTitle:'', servicesEyebrow:'', servicesTitle:'', servicesSub:'', features:[{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''}], feat1IconUrl:null, feat2IconUrl:null, feat3IconUrl:null, testimonialEyebrow:'', testimonials:[{quote:'',author:''},{quote:'',author:''},{quote:'',author:''}], buttons:null });
+  Object.assign(state, { bizName:'', tagline:'', heroHeadline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', showTrustBar:true, trust1:'', trust2:'', trust3:'', trust4:'', ctaHeadline:'', ctaSubtext:'', designStyle:null, sections:{about:true,services:true,testimonial:false,cta:true}, aboutEyebrow:'', aboutTitle:'', servicesEyebrow:'', servicesTitle:'', servicesSub:'', features:[{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''}], feat1IconUrl:null, feat2IconUrl:null, feat3IconUrl:null, testimonialEyebrow:'', testimonials:[{quote:'',author:''}], buttons:null });
+  renderTestimonialBlocks();
   document.getElementById('share-box').classList.remove('show');
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('btn-share').textContent = '🔗 Save & Share';
@@ -1167,13 +1164,61 @@ function collectStep(step) {
       iconUrl: state['feat'+i+'IconUrl'] || '',
     }));
     state.testimonialEyebrow = document.getElementById('testimonial-eyebrow').value.trim();
-    state.testimonials = [1,2,3].map(i => ({
-      quote: document.getElementById('testimonial-'+i+'-quote').value.trim(),
-      author: document.getElementById('testimonial-'+i+'-author').value.trim(),
-    }));
+    syncTestimonialInputsToState();
 
     state.buttons = collectButtons();
   }
+}
+
+/* ═══════════════════════════════════════════════════
+   TESTIMONIALS — dynamic list, up to 9 reviews.
+   state.testimonials is the source of truth; the DOM blocks are
+   rebuilt from it whenever one is added or removed, after first
+   pulling in whatever the person has typed so nothing is lost.
+═══════════════════════════════════════════════════ */
+const MAX_TESTIMONIALS = 9;
+
+function renderTestimonialBlocks() {
+  if (!state.testimonials || !state.testimonials.length) state.testimonials = [{ quote:'', author:'' }];
+  const wrap = document.getElementById('testimonial-blocks');
+  wrap.innerHTML = state.testimonials.map((t, i) => `
+    <div style="display:flex;gap:8px;align-items:flex-start;">
+      <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+        <input type="text" class="copy-field" id="testimonial-${i+1}-quote" placeholder="${i===0 ? 'Review 1 — what your client actually said' : 'Review '+(i+1)+' (optional)'}" maxlength="240" value="${escHtml(t.quote)}">
+        <input type="text" class="copy-field" id="testimonial-${i+1}-author" placeholder="Their name" maxlength="40" value="${escHtml(t.author)}">
+      </div>
+      ${state.testimonials.length > 1 ? `<button type="button" class="upload-remove" style="position:static;width:26px;height:26px;font-size:14px;flex-shrink:0;margin-top:4px;" onclick="removeTestimonialBlock(${i})">×</button>` : ''}
+    </div>`).join('');
+  const addBtn = document.getElementById('btn-add-testimonial');
+  addBtn.style.display = state.testimonials.length >= MAX_TESTIMONIALS ? 'none' : '';
+  addBtn.textContent = `+ Add another review (${state.testimonials.length}/${MAX_TESTIMONIALS})`;
+}
+
+function syncTestimonialInputsToState() {
+  state.testimonials = (state.testimonials || []).map((t, i) => ({
+    quote: document.getElementById('testimonial-'+(i+1)+'-quote')?.value.trim() ?? t.quote ?? '',
+    author: document.getElementById('testimonial-'+(i+1)+'-author')?.value.trim() ?? t.author ?? '',
+  }));
+}
+
+function addTestimonialBlock() {
+  syncTestimonialInputsToState();
+  if (state.testimonials.length >= MAX_TESTIMONIALS) return;
+  state.testimonials.push({ quote:'', author:'' });
+  renderTestimonialBlocks();
+}
+
+function removeTestimonialBlock(i) {
+  syncTestimonialInputsToState();
+  if (state.testimonials.length <= 1) return;
+  state.testimonials.splice(i, 1);
+  renderTestimonialBlocks();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', renderTestimonialBlocks);
+} else {
+  renderTestimonialBlocks();
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1395,7 +1440,7 @@ function buildPreviewHtml(s) {
     ? s.testimonials
     : [{ quote: s.testimonialQuote, author: s.testimonialAuthor }];
   const testimonials = rawTestimonials
-    .slice(0, 3)
+    .slice(0, 9)
     .map(t => ({ quote: ((t && t.quote) || '').trim(), author: ((t && t.author) || '').trim() || 'Client' }))
     .filter(t => t.quote);
   const show = {
@@ -1484,7 +1529,7 @@ ${show.services ? `<div class="fg">
 </div>` : ''}
 ${show.testimonial ? `<div class="fg" style="text-align:center;">
   <div class="ey">${s.testimonialEyebrow || 'What Clients Say'}</div>
-  <div class="fgg" style="max-width:${testimonials.length === 1 ? '560px' : '900px'};margin:20px auto 0;grid-template-columns:repeat(${testimonials.length},1fr);">
+  <div class="fgg" style="max-width:${testimonials.length === 1 ? '560px' : '1000px'};margin:20px auto 0;grid-template-columns:${testimonials.length === 1 ? '1fr' : 'repeat(auto-fit,minmax(220px,1fr))'};">
     ${testimonials.map(t => `<div class="fc" style="text-align:center;">
       <div style="font-size:40px;color:${theme.accent};line-height:0.8;margin-bottom:16px;font-family:Georgia,serif;">"</div>
       <div style="font-size:17px;font-style:italic;color:${theme.headingColor};margin-bottom:16px;">${t.quote}</div>
@@ -1670,7 +1715,7 @@ async function editSite(uuid) {
       testimonialEyebrow: data.testimonialEyebrow || '',
       // Migrate older sites that only had one flat quote/author pair.
       testimonials: (data.testimonials && data.testimonials.length ? data.testimonials : [{ quote: data.testimonialQuote || '', author: data.testimonialAuthor || '' }])
-        .concat([{},{},{}]).slice(0,3)
+        .slice(0, MAX_TESTIMONIALS)
         .map(t => ({ quote: (t && t.quote) || '', author: (t && t.author) || '' })),
       buttons: data.buttons || null,
     });
@@ -1727,10 +1772,7 @@ async function editSite(uuid) {
       state['feat'+(i+1)+'IconUrl'] = f.iconUrl || null;
     });
     document.getElementById('testimonial-eyebrow').value = state.testimonialEyebrow;
-    (state.testimonials || []).slice(0,3).forEach((t, i) => {
-      document.getElementById('testimonial-'+(i+1)+'-quote').value = t.quote || '';
-      document.getElementById('testimonial-'+(i+1)+'-author').value = t.author || '';
-    });
+    renderTestimonialBlocks();
     fillButtonConfig(state.buttons);
 
     // Font style
