@@ -1144,8 +1144,32 @@ app.get('/preview/:uuid', async (req, res) => {
 });
 
 // ── BILLING PAGES ──────────────────────────────────────────────────────────────
-app.get('/billing/success', (req, res) => {
+// Don't rely on the webhook alone to flip the plan — it's usually fast, but if
+// it lands late (or Stripe's endpoint config is off) the customer lands here
+// on a still-"free" account. We hold the Checkout Session id, so confirm it
+// ourselves and write the plan directly; the webhook remains the source of
+// truth for later events (renewals, cancellations) but is no longer a single
+// point of failure for the very first upgrade.
+app.get('/billing/success', async (req, res) => {
   const plan = req.query.plan || 'starter';
+  const sessionId = req.query.session_id;
+  if (sessionId) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const userId = parseInt(session.metadata?.userId);
+      const sessionPlan = session.metadata?.plan;
+      if (session.payment_status === 'paid' && userId && sessionPlan) {
+        await dbRun('UPDATE users SET plan = ? WHERE id = ?', sessionPlan, userId);
+        if (session.subscription) {
+          await dbRun('UPDATE users SET stripe_subscription_id = ? WHERE id = ?', session.subscription, userId);
+        }
+        console.log(`✓ User ${userId} upgraded to ${sessionPlan} (confirmed via success redirect)`);
+      }
+    } catch (e) {
+      console.error('billing/success session verification error:', e.message);
+      // Fall through — the webhook may still land and fix this up.
+    }
+  }
   const planLabel = PLANS[plan]?.name || 'Starter';
   res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Welcome to ${planLabel}!</title>
 <meta http-equiv="refresh" content="4; url=/">
