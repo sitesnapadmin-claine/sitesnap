@@ -1626,6 +1626,12 @@ async function saveAndShare() {
   // save look like it failed, so each piece is wrapped individually and
   // only logged to the console rather than shown to the person.
   currentSiteUuid = data.uuid;
+  // The very first save takes the POST/create branch above. Without this,
+  // editMode stays false and the NEXT click of Save & Share (same session,
+  // no reload) would POST again — creating a second site and immediately
+  // hitting the free/starter 1-site limit, which surfaces as "save failed"
+  // even though nothing is actually wrong with saving itself.
+  editMode = true;
 
   try {
     // Switch iframe to live server-rendered preview
