@@ -1577,8 +1577,9 @@ async function saveAndShare() {
   btn.textContent = '⏳ Saving…';
   btn.disabled = true;
 
+  let data;
   try {
-    let res, data;
+    let res;
     if (editMode && currentSiteUuid) {
       // Update existing site
       res = await fetch(`/api/sites/${currentSiteUuid}`, {
@@ -1597,36 +1598,55 @@ async function saveAndShare() {
       data = await res.json();
     }
     if (!res.ok) throw new Error(data.error || 'Save failed');
+  } catch (e) {
+    // The actual save (network request) failed — this is a real failure.
+    console.error('SiteSnap save failed:', e);
+    btn.textContent = '❌ Failed — try again';
+    btn.style.background = '#EF4444';
+    setTimeout(() => { btn.textContent = '🔗 Save & Share'; btn.style.background = ''; btn.disabled = false; }, 3000);
+    return;
+  }
 
-    currentSiteUuid = data.uuid;
+  // From here on, the save itself has already succeeded — data is safely
+  // persisted. Anything below is cosmetic (preview iframe, domain panel,
+  // upgrade nudge). A bug in any of those must never make a successful
+  // save look like it failed, so each piece is wrapped individually and
+  // only logged to the console rather than shown to the person.
+  currentSiteUuid = data.uuid;
 
+  try {
     // Switch iframe to live server-rendered preview
     const iframe = document.getElementById('preview-frame');
-    iframe.src = `/preview/${data.uuid}`;
-    iframe.removeAttribute('srcdoc');
-    iframe.onload = () => {
-      try { iframe.style.height = (iframe.contentDocument.body.scrollHeight + 40) + 'px'; } catch(e){}
-    };
+    if (iframe) {
+      iframe.src = `/preview/${data.uuid}`;
+      iframe.removeAttribute('srcdoc');
+      iframe.onload = () => {
+        try { iframe.style.height = (iframe.contentDocument.body.scrollHeight + 40) + 'px'; } catch(e){}
+      };
+    }
+  } catch (e) { console.error('SiteSnap: preview refresh failed (save was still successful):', e); }
 
+  try {
     // Show share box
     document.getElementById('share-url-input').value = data.url;
     document.getElementById('share-box').classList.add('show');
-    btn.textContent = editMode ? '✓ Updated!' : '✓ Saved!';
-    btn.style.background = '#10B981';
-    setTimeout(() => { btn.textContent = '🔗 Save & Share'; btn.style.background = ''; btn.disabled = false; }, 3000);
+  } catch (e) { console.error('SiteSnap: share box render failed (save was still successful):', e); }
 
+  btn.textContent = editMode ? '✓ Updated!' : '✓ Saved!';
+  btn.style.background = '#10B981';
+  setTimeout(() => { btn.textContent = '🔗 Save & Share'; btn.style.background = ''; btn.disabled = false; }, 3000);
+
+  try {
     // Show domain section based on plan
     renderDomainSection(authPlan, data.uuid);
+  } catch (e) { console.error('SiteSnap: domain section render failed (save was still successful):', e); }
 
+  try {
     // Prompt upgrade if free user (only on first save, not edits)
     if (authPlan === 'free' && !editMode) {
       setTimeout(() => openUpgradeModal(), 1800);
     }
-  } catch (e) {
-    btn.textContent = '❌ Failed — try again';
-    btn.style.background = '#EF4444';
-    setTimeout(() => { btn.textContent = '🔗 Save & Share'; btn.style.background = ''; btn.disabled = false; }, 3000);
-  }
+  } catch (e) { console.error('SiteSnap: upgrade prompt failed (save was still successful):', e); }
 }
 
 function copyLink() {
@@ -1911,6 +1931,7 @@ function renderDomainSection(plan, uuid) {
   const section = document.getElementById('domain-section');
   const content = document.getElementById('domain-section-content');
   const title = document.getElementById('domain-section-title');
+  if (!section || !content || !title) return; // elements not present in this view — nothing to do
   section.style.display = 'block';
   // Show restore-plan link only for free users (in case they already paid)
   const restoreWrap = document.getElementById('restore-plan-wrap');
