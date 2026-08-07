@@ -1501,8 +1501,12 @@ function buttonHref(action) {
   if (!raw) return null;
 
   if (type === 'email') {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return null;
-    return 'mailto:' + raw;
+    // People often type "mailto:name@x.com" thinking the prefix is required
+    // (it isn't — the dropdown already says "Email"). Strip it so that
+    // doesn't produce a broken "mailto:mailto:..." link.
+    const email = raw.replace(/^mailto:/i, '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+    return 'mailto:' + email;
   }
   if (type === 'phone') {
     const digits = raw.replace(/[^\d+]/g, '');
