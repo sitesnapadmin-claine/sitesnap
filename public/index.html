@@ -1508,8 +1508,9 @@ function clientButtonHref(action) {
   if (type === 'section') return '#' + (raw || 'contact').replace(/^#/, '');
   if (!raw) return null;
   if (type === 'email') {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return null;
-    return 'mailto:' + raw;
+    const email = raw.replace(/^mailto:/i, '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+    return 'mailto:' + email;
   }
   if (type === 'phone') {
     const digits = raw.replace(/[^\d+]/g, '');
