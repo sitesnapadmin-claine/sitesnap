@@ -1024,10 +1024,16 @@ async function submitAuth() {
     localStorage.setItem('ss_token', authToken);
     localStorage.setItem('ss_email', authEmail);
     localStorage.setItem('ss_plan', authPlan);
+    // closeAuthModal() unconditionally clears pendingSave as part of its normal
+    // cleanup (so a manually-dismissed modal doesn't leave a stale save queued).
+    // Snapshot the flag before calling it, or the auto-save-after-register flow
+    // below never fires — the person registers, sees the modal close, and
+    // nothing else happens, looking exactly like a failed/incomplete signup.
+    const shouldSave = pendingSave;
     closeAuthModal();
     renderAuthArea();
 
-    if (pendingSave) { pendingSave = false; saveAndShare(); }
+    if (shouldSave) saveAndShare();
   } catch (e) {
     showAuthError('Network error. Please check your connection.');
   } finally {
