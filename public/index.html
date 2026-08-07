@@ -1495,6 +1495,47 @@ function renderPreview() {
   };
 }
 
+// Mirrors the server's buttonHref/ctaFor/renderCta (server.js) so the local
+// preview iframe shows the SAME label and destination the person just typed
+// into "Where your buttons go" — instead of always showing the generic CTA
+// text on a dead button, which made custom button edits look like they
+// silently failed to save even though the real saved site had them.
+function clientButtonHref(action) {
+  if (!action) return null;
+  const type = action.type || 'section';
+  const raw = String(action.value ?? '').trim();
+  if (type === 'none') return null;
+  if (type === 'section') return '#' + (raw || 'contact').replace(/^#/, '');
+  if (!raw) return null;
+  if (type === 'email') {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return null;
+    return 'mailto:' + raw;
+  }
+  if (type === 'phone') {
+    const digits = raw.replace(/[^\d+]/g, '');
+    return digits ? 'tel:' + digits : null;
+  }
+  if (type === 'url') {
+    const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^\/+/, '');
+    return /^https?:\/\/[^\s/$.?#][^\s]*$/i.test(url) ? url : null;
+  }
+  return null;
+}
+function clientCtaFor(s, key, fallbackLabel, fallbackSection) {
+  const configured = s && s.buttons && s.buttons[key];
+  if (configured && (configured.label || configured.type)) return configured;
+  return { label: fallbackLabel, type: 'section', value: fallbackSection || 'contact' };
+}
+function clientRenderCta(action, fallbackLabel, cls, extraStyle) {
+  const label = escHtml((action && action.label) || fallbackLabel);
+  const href = clientButtonHref(action);
+  const style = extraStyle ? ` style="${extraStyle}"` : '';
+  if (!href) return `<button class="${cls}"${style}>${label}</button>`;
+  const external = /^https?:\/\//i.test(href);
+  const rel = external ? ' target="_blank" rel="noopener noreferrer"' : '';
+  return `<a class="${cls}" href="${escHtml(href)}"${rel}${style}>${label}</a>`;
+}
+
 function buildPreviewHtml(s) {
   const name = s.bizName || 'Your Business';
   const tagline = s.tagline || `Passionate about ${s.industry || 'what we do'}`;
@@ -1556,13 +1597,15 @@ function buildPreviewHtml(s) {
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}body{font-family:${theme.bodyFont};background:${theme.bg};color:${theme.text};}
 nav{background:${theme.navBg};padding:16px 40px;display:flex;align-items:center;justify-content:space-between;border-bottom:${theme.navBorder};}
-.nc{padding:9px 22px;background:${theme.btnBg};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:14px;font-weight:700;border:none;}
+.nc{text-decoration:none;padding:9px 22px;background:${theme.btnBg};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:14px;font-weight:700;border:none;cursor:pointer;display:inline-block;}
 .hero{padding:72px 40px;background:${theme.heroBg};display:grid;grid-template-columns:1fr 0.85fr;gap:56px;align-items:center;}
 .hi{border-radius:${theme.imgRadius};overflow:hidden;aspect-ratio:4/3;background:${theme.heroImgBg};display:flex;align-items:center;justify-content:center;}
 h1{font-family:${theme.headFont};font-size:clamp(28px,4.5vw,52px);font-weight:${theme.heroWeight};color:${theme.heroText};line-height:1.1;margin-bottom:18px;letter-spacing:${theme.heroTracking};}
 h1 em{color:${theme.accent};font-style:normal;}
 .hs{font-size:16px;color:${theme.heroSubText};margin-bottom:28px;}
-.bp{padding:14px 32px;background:${theme.btnBg};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:15px;font-weight:700;border:none;display:inline-block;}
+.hb{display:flex;gap:14px;flex-wrap:wrap;}
+.bp{text-decoration:none;padding:14px 32px;background:${theme.btnBg};color:${theme.ctaText};border-radius:${theme.btnRadius};font-size:15px;font-weight:700;border:none;cursor:pointer;display:inline-block;}
+.bs{text-decoration:none;padding:14px 30px;background:transparent;color:${theme.heroText};border-radius:${theme.btnRadius};font-size:15px;font-weight:600;border:2px solid ${theme.text}33;cursor:pointer;display:inline-block;}
 .tb{padding:16px 40px;background:${theme.trustBg};border-top:${theme.trustBorder};border-bottom:${theme.trustBorder};display:flex;gap:40px;flex-wrap:wrap;justify-content:center;}
 .ti{font-size:13px;font-weight:600;color:${theme.trustText};opacity:0.7;display:flex;align-items:center;gap:6px;}
 .td{width:5px;height:5px;border-radius:50%;background:${theme.accent};}
@@ -1582,12 +1625,12 @@ footer{background:${theme.footerBg};padding:32px 40px;display:flex;justify-conte
 .fn{font-size:17px;font-weight:800;color:${theme.footerText};}
 .fc2{font-size:12px;color:${theme.footerText};opacity:0.5;}
 </style></head><body>
-<nav>${logoHtml}<div style="display:flex;gap:28px;font-size:14px;font-weight:500;color:${theme.navText};opacity:0.8;"><span>About</span><span>Services</span><span>Contact</span></div><button class="nc">${cta}</button></nav>
+<nav>${logoHtml}<div style="display:flex;gap:28px;font-size:14px;font-weight:500;color:${theme.navText};opacity:0.8;"><span>About</span><span>Services</span><span>Contact</span></div>${clientRenderCta(clientCtaFor(s,'nav',cta,'contact'), cta, 'nc')}</nav>
 <div class="hero"><div>
   <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${theme.accent};margin-bottom:14px;">${s.industry || 'Business'}${loc}</div>
   <h1>${(s.heroHeadline || '').trim() || heroHeadline(name, s.industry)}</h1>
   <p class="hs">${tagline}</p>
-  <button class="bp">${cta} →</button>
+  <div class="hb">${clientRenderCta(clientCtaFor(s,'heroMain',cta+' →','contact'), cta+' →', 'bp')}${clientRenderCta(clientCtaFor(s,'heroAlt','Learn More','about'), 'Learn More', 'bs')}</div>
 </div><div class="hi">${heroImg}</div></div>
 ${s.showTrustBar !== false ? `<div class="tb"><div class="ti"><div class="td"></div>${ti1}</div><div class="ti"><div class="td"></div>${ti2}</div><div class="ti"><div class="td"></div>${ti3}</div><div class="ti"><div class="td"></div>${ti4}</div></div>` : ''}
 ${show.about ? `<div class="ab"><div class="ai">${aboutImg}</div><div>
@@ -1595,7 +1638,7 @@ ${show.about ? `<div class="ab"><div class="ai">${aboutImg}</div><div>
   <div class="st">${s.aboutTitle || `We exist for ${audience.split(' ').slice(0,5).join(' ')}…`}</div>
   <p class="sp">${s.problem || `At ${name}, we make it easy to get exactly what you need.`}</p>
   <p class="sp">${s.differentiator || 'We bring a unique approach and deep expertise to everything we do.'}</p>
-  <button class="bp" style="margin-top:10px;">${cta} →</button>
+  ${clientRenderCta(clientCtaFor(s,'about',cta+' →','contact'), cta+' →', 'bp', 'margin-top:10px;')}
 </div></div>` : ''}
 ${show.services ? `<div class="fg">
   <div style="text-align:center;"><div class="ey">${s.servicesEyebrow || 'Why Choose Us'}</div><div class="st" style="margin-bottom:8px;">${s.servicesTitle || `What makes ${name} different`}</div><div class="sp" style="margin:0 auto 8px;max-width:480px;">${s.servicesSub || "We don't just talk the talk — here's what you can expect every single time."}</div></div>
@@ -1614,7 +1657,7 @@ ${show.testimonial ? `<div class="fg" style="text-align:center;">
   </div>
 </div>` : ''}
 ${show.cta ? `<div class="cs"><h2>${ctaH}</h2><p>${ctaSub}</p>
-<button class="bp" style="background:${theme.ctaSectionBtn};color:${theme.ctaSectionBtnText};font-size:16px;padding:16px 40px;">${cta} →</button></div>` : ''}
+${clientRenderCta(clientCtaFor(s,'final',cta+' →','contact'), cta+' →', 'bp', `background:${theme.ctaSectionBtn};color:${theme.ctaSectionBtnText};font-size:16px;padding:16px 40px;`)}</div>` : ''}
 <footer><div class="fn">${name}</div><div class="fc2">© ${new Date().getFullYear()} ${name}. All rights reserved.</div></footer>
 </body></html>`;
 }
