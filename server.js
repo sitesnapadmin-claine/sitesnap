@@ -359,6 +359,7 @@ async function initDb() {
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires BIGINT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT',
     ]) { try { await pgPool.query(sql); } catch (e) { console.warn('migration skipped:', e.message); } }
     console.log('✓ Using Postgres — site data survives redeploys');
     return;
@@ -394,6 +395,7 @@ async function initDb() {
     'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
     'ALTER TABLE users ADD COLUMN reset_token_hash TEXT',
     'ALTER TABLE users ADD COLUMN reset_expires INTEGER',
+    'ALTER TABLE users ADD COLUMN name TEXT',
   ].forEach(sql => { try { sqliteDb.exec(sql); } catch (_) {} });
   console.warn('⚠️  Using SQLite — on an ephemeral host, saved sites are LOST on every redeploy.');
   console.warn('   Attach a Postgres service so DATABASE_URL is set.');
@@ -557,10 +559,55 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, plan, created_at, password_hash FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, created_at, password_hash FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const { password_hash, ...safe } = user;
-  res.json({ ...safe, needsPassword: !isUsablePasswordHash(password_hash) });
+  const { password_hash, stripe_customer_id, ...safe } = user;
+  res.json({ ...safe, hasPaymentMethod: Boolean(stripe_customer_id), needsPassword: !isUsablePasswordHash(password_hash) });
+});
+
+// ── ACCOUNT: update profile (name / email) ─────────────────────────────────────
+app.put('/api/account/profile', requireAuth, async (req, res) => {
+  const name = String((req.body || {}).name ?? '').trim().slice(0, 100);
+  const email = String((req.body || {}).email ?? '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
+  }
+  try {
+    await dbRun('UPDATE users SET name = ?, email = ? WHERE id = ?', name, email, req.user.id);
+    // Email is part of the JWT payload (used for admin checks and Stripe
+    // customer lookups elsewhere), so a changed email needs a fresh token —
+    // otherwise the old address would keep acting as the identity until the
+    // 30-day token expires.
+    const newToken = jwt.sign({ id: req.user.id, email, plan: req.user.plan }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ ok: true, name, email, token: newToken });
+  } catch (e) {
+    if (isUniqueViolation(e)) return res.status(409).json({ error: 'That email is already in use by another account' });
+    console.error('update profile error:', e.message);
+    res.status(500).json({ error: 'Could not update profile' });
+  }
+});
+
+// ── ACCOUNT: permanent deletion ─────────────────────────────────────────────────
+// Cancels any live Stripe subscription first (so the person is never charged
+// again after asking to leave), then removes their sites and user row. Stripe
+// customer records are left intact — Stripe itself recommends against hard-
+// deleting customers with billing history — but nothing in our own database
+// survives this call.
+app.delete('/api/account', requireAuth, async (req, res) => {
+  try {
+    const user = await dbGet('SELECT stripe_subscription_id FROM users WHERE id = ?', req.user.id);
+    if (user?.stripe_subscription_id) {
+      try { await stripe.subscriptions.cancel(user.stripe_subscription_id); }
+      catch (e) { console.warn('account delete: subscription cancel failed (continuing):', e.message); }
+    }
+    await dbRun('DELETE FROM sites WHERE user_id = ?', req.user.id);
+    await dbRun('DELETE FROM users WHERE id = ?', req.user.id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('delete account error:', e.message);
+    res.status(500).json({ error: 'Could not delete account. Please try again.' });
+  }
 });
 
 // ── DEPLOYMENT DIAGNOSTICS ─────────────────────────────────────────────────────
