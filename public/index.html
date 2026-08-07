@@ -911,6 +911,19 @@ document.addEventListener('DOMContentLoaded', () => {
   if (authToken) refreshPlan();
 });
 
+// Stripe checkout completes on a different origin, then bounces back through
+// /billing/success. If the webhook that flips the plan in the DB lands a beat
+// after that redirect (or the tab was left in the background and never
+// re-ran DOMContentLoaded's one-shot check), the badge and "My Sites" can be
+// stuck showing pre-upgrade state until the next full reload. Re-check plan
+// every time the tab regains focus so that race can't leave a stale view.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && authToken) refreshPlan();
+});
+window.addEventListener('focus', () => {
+  if (authToken) refreshPlan();
+});
+
 /* ═══════════════════════════════════════════════════
    AUTH AREA
 ═══════════════════════════════════════════════════ */
@@ -1671,6 +1684,7 @@ async function openDrawer() {
   document.getElementById('sites-drawer').classList.add('open');
   const listEl = document.getElementById('sites-list');
   listEl.innerHTML = '<div class="empty-sites">Loading your sites…</div>';
+  if (authToken) refreshPlan(); // catch a plan upgrade that hasn't reached the UI yet
   try {
     const res = await fetch('/api/sites', { headers:{ 'Authorization':`Bearer ${authToken}` } });
     const sites = await res.json();
