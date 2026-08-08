@@ -911,6 +911,9 @@
     <h3>My Websites</h3>
     <button class="drawer-close" onclick="closeDrawer()">×</button>
   </div>
+  <div style="padding:16px 24px 0;">
+    <button class="site-item-open" style="width:100%;padding:10px;border-color:var(--brand);color:var(--brand);font-size:13px;" onclick="buildNewSite()">➕ Build a New Site</button>
+  </div>
   <div id="sites-list"></div>
 </div>
 
@@ -1813,6 +1816,7 @@ async function openDrawer() {
         <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;" onclick="event.stopPropagation()">
           <button class="site-item-open" style="border-color:var(--brand);color:var(--brand);" onclick="editSite('${escHtml(s.uuid)}')">✏️ Edit</button>
           <button class="site-item-open" onclick="window.open('/preview/${escHtml(s.uuid)}','_blank')">Open ↗</button>
+          <button class="site-item-open" style="border-color:var(--danger);color:var(--danger);" onclick="deleteSite('${escHtml(s.uuid)}', this)">🗑 Delete</button>
         </div>
       </div>`).join('');
   } catch(e) {
@@ -1821,6 +1825,40 @@ async function openDrawer() {
 }
 
 function closeDrawer() { document.getElementById('sites-drawer').classList.remove('open'); }
+
+// Permanently removes a saved site. Confirmed inline (native confirm) since
+// this only affects one site, not the whole account.
+async function deleteSite(uuid, btnEl) {
+  const row = btnEl.closest('.site-item');
+  const name = row?.querySelector('.site-item-name')?.textContent || 'this site';
+  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  const original = btnEl.textContent;
+  btnEl.disabled = true;
+  btnEl.textContent = 'Deleting…';
+  try {
+    const res = await fetch(`/api/sites/${uuid}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } });
+    if (!res.ok) throw new Error('Delete failed');
+    if (row) row.remove();
+    const listEl = document.getElementById('sites-list');
+    if (listEl && !listEl.querySelector('.site-item')) {
+      listEl.innerHTML = '<div class="empty-sites">No sites yet! Fill out the form to create your first one. 🚀</div>';
+    }
+    // If the site being deleted is the one currently open in the wizard, drop out of edit mode.
+    if (currentSiteUuid === uuid) { editMode = false; currentSiteUuid = null; }
+  } catch (e) {
+    btnEl.disabled = false;
+    btnEl.textContent = original;
+    alert('Could not delete that site. Please try again.');
+  }
+}
+
+// Jumps straight into a brand-new site instead of whatever is loaded in the
+// wizard right now. A full reload is simplest and safest here — it guarantees
+// no leftover field values or state from whatever was being edited before,
+// while keeping the person signed in (auth token lives in localStorage).
+function buildNewSite() {
+  window.location.href = '/';
+}
 
 async function editSite(uuid) {
   closeDrawer();
