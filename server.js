@@ -4,6 +4,7 @@ const fs = require('fs');
 const dns = require('dns').promises;
 const crypto = require('crypto');
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
 // better-sqlite3 is a native module and only needed for the SQLite fallback —
 // required lazily so a Postgres deploy never depends on it compiling.
 const bcrypt = require('bcryptjs');
@@ -29,6 +30,35 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
 }
 
 const app = express();
+// Railway sits in front of the app as a reverse proxy — without this,
+// express-rate-limit sees Railway's proxy IP for every request (or throws,
+// depending on version) instead of the real client IP.
+app.set('trust proxy', 1);
+
+// ── RATE LIMITING (auth endpoints only — brute force / spam prevention) ────────
+// Keyed by IP. Generous enough that a real person retyping a password a few
+// times never gets blocked, tight enough to make automated abuse pointless.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
+});
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many accounts created from this network. Please try again later.' },
+});
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many reset requests. Please check your email or try again later.' },
+});
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'sitesnap-dev-secret-change-in-production';
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
@@ -518,7 +548,7 @@ function requirePlan(plan) {
 }
 
 // ── AUTH ROUTES ────────────────────────────────────────────────────────────────
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', registerLimiter, async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -538,7 +568,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body || {};
   const user = await dbGet('SELECT * FROM users WHERE email = ?', email?.toLowerCase().trim());
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
@@ -688,7 +718,7 @@ app.post('/api/auth/set-password', requireAuth, async (req, res) => {
 });
 
 // ── PASSWORD RESET ─────────────────────────────────────────────────────────────
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', forgotPasswordLimiter, async (req, res) => {
   const email = String((req.body || {}).email || '').toLowerCase().trim();
 
   if (!EMAIL_READY) {
@@ -724,7 +754,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
-app.post('/api/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', forgotPasswordLimiter, async (req, res) => {
   const { token, password } = req.body || {};
   if (!token) return res.status(400).json({ error: 'Reset link is missing its token' });
   if (!password || String(password).length < 6) {
@@ -1243,6 +1273,132 @@ app.get('/billing/cancel', (req, res) => {
 <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f9fafb;}
 .box{text-align:center;padding:48px;}.icon{font-size:40px;margin-bottom:16px;}h1{font-size:20px;color:#1A1A2E;margin-bottom:8px;}p{color:#6B7280;font-size:14px;}</style>
 </head><body><div class="box"><div class="icon">👋</div><h1>No worries!</h1><p>Checkout cancelled. Taking you back…</p></div></body></html>`);
+});
+
+// ── LEGAL PAGES ─────────────────────────────────────────────────────────────────
+const LEGAL_CONTACT_EMAIL = 'sitesnap.admin@gmail.com';
+const LEGAL_UPDATED = 'August 8, 2026';
+
+function legalPageHtml(title, bodyHtml) {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title} — SiteSnap</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;}
+body{font-family:'Inter',sans-serif;color:#1A1A2E;background:#F9FAFB;margin:0;line-height:1.6;}
+.wrap{max-width:720px;margin:0 auto;padding:48px 24px 80px;}
+a.back{color:#6C47FF;text-decoration:none;font-weight:600;font-size:14px;}
+h1{font-size:30px;font-weight:800;margin:24px 0 4px;}
+.updated{color:#6B7280;font-size:13px;margin-bottom:32px;}
+h2{font-size:18px;font-weight:700;margin:32px 0 10px;}
+p,li{color:#374151;font-size:15px;margin-bottom:12px;}
+ul{padding-left:22px;margin-bottom:12px;}
+.note{background:#EEF2FF;border:1px solid #E0E7FF;border-radius:10px;padding:14px 18px;font-size:13px;color:#4338CA;margin:28px 0;}
+</style></head><body><div class="wrap">
+<a class="back" href="/">← Back to SiteSnap</a>
+<h1>${title}</h1>
+<div class="updated">Last updated: ${LEGAL_UPDATED}</div>
+${bodyHtml}
+</div></body></html>`;
+}
+
+app.get('/terms', (req, res) => {
+  res.send(legalPageHtml('Terms of Service', `
+<p>These Terms of Service ("Terms") govern your use of SiteSnap (the "Service"), operated by SiteSnap ("we", "us"). By creating an account or using the Service, you agree to these Terms.</p>
+
+<h2>1. The Service</h2>
+<p>SiteSnap lets you generate and publish a website for your business by answering a series of questions. We host the pages you create and, on paid plans, provision a custom domain for you.</p>
+
+<h2>2. Your account</h2>
+<p>You're responsible for keeping your login credentials secure and for all activity under your account. You must be able to enter a legally binding contract to use the Service.</p>
+
+<h2>3. Plans and billing</h2>
+<ul>
+<li>Free plan: limited to 1 published site.</li>
+<li>Starter: one-time payment, removes the SiteSnap badge and adds a subdomain, limited to 1 site.</li>
+<li>Pro: monthly subscription, adds support for your own custom domain and unlimited sites.</li>
+</ul>
+<p>Paid plans are billed through Stripe. Subscriptions renew automatically until cancelled. You can manage or cancel your subscription from the billing portal in your account. Fees already charged are non-refundable except where required by law.</p>
+
+<h2>4. Your content</h2>
+<p>You keep ownership of the text, images, and other content you upload or enter. You're responsible for having the rights to anything you upload, and for making sure your published site doesn't violate anyone else's rights or the law. We can remove content or suspend a site that we reasonably believe breaks these Terms or the law.</p>
+
+<h2>5. Acceptable use</h2>
+<p>Don't use the Service to publish illegal content, malware, or material that infringes someone else's intellectual property, and don't try to abuse, overload, or gain unauthorized access to the Service.</p>
+
+<h2>6. Custom domains</h2>
+<p>When you connect your own domain, you're responsible for your domain registration and DNS settings. We provision the domain and SSL certificate through our hosting provider; availability can depend on that provider's own limits.</p>
+
+<h2>7. Service availability</h2>
+<p>We aim to keep the Service running reliably but don't guarantee uninterrupted uptime. We may change or discontinue features with notice where reasonably possible.</p>
+
+<h2>8. Termination</h2>
+<p>You can delete your account at any time from My Account, which permanently deletes your sites and cancels any active subscription. We may suspend or terminate accounts that violate these Terms.</p>
+
+<h2>9. Disclaimer and liability</h2>
+<p>The Service is provided "as is" without warranties of any kind. To the extent permitted by law, SiteSnap isn't liable for indirect, incidental, or consequential damages arising from your use of the Service.</p>
+
+<h2>10. Changes to these Terms</h2>
+<p>We may update these Terms from time to time. Continued use of the Service after changes take effect means you accept the updated Terms.</p>
+
+<h2>11. Contact</h2>
+<p>Questions about these Terms? Email <a href="mailto:${LEGAL_CONTACT_EMAIL}">${LEGAL_CONTACT_EMAIL}</a>.</p>
+
+<div class="note">This is a general template, not a substitute for legal advice tailored to your business. Consider having it reviewed by a lawyer before relying on it, especially once you have paying customers at scale.</div>
+`));
+});
+
+app.get('/privacy', (req, res) => {
+  res.send(legalPageHtml('Privacy Policy', `
+<p>This Privacy Policy explains what information SiteSnap collects, how we use it, and who we share it with.</p>
+
+<h2>1. Information we collect</h2>
+<ul>
+<li><strong>Account information:</strong> your email address and password (stored as a secure hash, never in plain text).</li>
+<li><strong>Site content:</strong> the business details, text, and images you enter to build your website.</li>
+<li><strong>Payment information:</strong> handled entirely by Stripe — we never see or store your card details ourselves.</li>
+<li><strong>Basic technical data:</strong> standard server logs (like IP address and request timestamps) generated by normal operation of the Service.</li>
+</ul>
+
+<h2>2. How we use it</h2>
+<ul>
+<li>To create and operate your account and publish your site.</li>
+<li>To process payments and manage subscriptions, through Stripe.</li>
+<li>To send account-related emails, such as password resets.</li>
+<li>To keep the Service secure and prevent abuse.</li>
+</ul>
+<p>We don't sell your personal information, and we don't use your site content for advertising.</p>
+
+<h2>3. Who we share it with</h2>
+<p>We share information only with the service providers that power SiteSnap, each acting on our behalf:</p>
+<ul>
+<li><strong>Stripe</strong> — payment processing and billing.</li>
+<li><strong>Cloudinary</strong> — stores images you upload to your site.</li>
+<li><strong>Resend</strong> — delivers transactional emails like password resets.</li>
+<li><strong>Railway</strong> — hosts the application, database, and custom domain/SSL provisioning.</li>
+</ul>
+<p>We don't share your information with anyone else except where required by law.</p>
+
+<h2>4. Your published site is public</h2>
+<p>Anything you choose to put on a published website — business details, images, contact info — is publicly visible to anyone who visits that site, by design.</p>
+
+<h2>5. Data retention and deletion</h2>
+<p>We keep your account and site data for as long as your account is active. You can permanently delete your account, all your saved sites, and cancel any active subscription at any time from My Account. This action can't be undone.</p>
+
+<h2>6. Security</h2>
+<p>Passwords are stored using one-way hashing. Traffic to the Service is encrypted in transit. No system is perfectly secure, but we take reasonable steps to protect your information.</p>
+
+<h2>7. Your choices</h2>
+<p>You can update your account details, delete individual sites, or delete your entire account at any time from My Account, without needing to contact us.</p>
+
+<h2>8. Changes to this policy</h2>
+<p>We may update this Privacy Policy from time to time. Continued use of the Service after changes take effect means you accept the updated policy.</p>
+
+<h2>9. Contact</h2>
+<p>Questions about this policy or your data? Email <a href="mailto:${LEGAL_CONTACT_EMAIL}">${LEGAL_CONTACT_EMAIL}</a>.</p>
+
+<div class="note">This is a general template, not a substitute for legal advice tailored to your business or jurisdiction (e.g. GDPR/CCPA obligations). Consider having it reviewed by a lawyer before relying on it, especially once you have paying customers at scale.</div>
+`));
 });
 
 function notFoundHtml() {
