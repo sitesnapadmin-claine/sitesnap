@@ -33,6 +33,17 @@
   .btn-signup-top { padding: 8px 20px; border-radius: 8px; border: none; background: var(--brand); font-size: 14px; font-weight: 600; color: white; cursor: pointer; transition: all 0.2s; }
   .btn-signup-top:hover { background: var(--brand-dark); }
 
+  /* On narrow screens the logo + auth buttons don't fit on one row without
+     crowding, so stack the logo on top and let the auth buttons wrap in a
+     centered row underneath with breathing room. */
+  @media (max-width: 640px) {
+    .topnav { flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px 16px; }
+    .auth-area { flex-wrap: wrap; justify-content: center; width: 100%; gap: 10px; }
+    .auth-area button, .auth-area .user-pill { white-space: nowrap; }
+    .btn-login-top, .btn-signup-top, .my-sites-btn { padding: 8px 16px; font-size: 13px; }
+    .user-pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  }
+
   /* ── LAYOUT ─────────────────────────────────── */
   .app { max-width: 800px; margin: 0 auto; padding: 36px 20px 80px; }
 
