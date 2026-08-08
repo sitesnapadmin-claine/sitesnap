@@ -911,9 +911,7 @@
     <h3>My Websites</h3>
     <button class="drawer-close" onclick="closeDrawer()">×</button>
   </div>
-  <div style="padding:16px 24px 0;">
-    <button class="site-item-open" style="width:100%;padding:10px;border-color:var(--brand);color:var(--brand);font-size:13px;" onclick="buildNewSite()">➕ Build a New Site</button>
-  </div>
+  <div style="padding:16px 24px 0;" id="new-site-cta"></div>
   <div id="sites-list"></div>
 </div>
 
@@ -955,6 +953,11 @@ let authToken = localStorage.getItem('ss_token') || null;
 let authEmail = localStorage.getItem('ss_email') || null;
 let authPlan = localStorage.getItem('ss_plan') || 'free';
 let authMode = 'register'; // or 'login'
+
+// Mirrors SITE_LIMITS in server.js. Kept in sync manually — the server is
+// the real enforcer, this is only used to steer people to the upgrade
+// screen before they sink time into a site they can't save.
+const CLIENT_SITE_LIMITS = { free: 1, starter: 1, pro: Infinity };
 let pendingSave = false;
 let currentStep = 0;
 let currentSiteUuid = null; // UUID of the most recently saved site
@@ -1800,10 +1803,12 @@ async function openDrawer() {
   document.getElementById('sites-drawer').classList.add('open');
   const listEl = document.getElementById('sites-list');
   listEl.innerHTML = '<div class="empty-sites">Loading your sites…</div>';
+  renderNewSiteCta(null); // unknown yet — render once count/plan resolve below
   if (authToken) refreshPlan(); // catch a plan upgrade that hasn't reached the UI yet
   try {
     const res = await fetch('/api/sites', { headers:{ 'Authorization':`Bearer ${authToken}` } });
     const sites = await res.json();
+    renderNewSiteCta(sites.length);
     if (!sites.length) { listEl.innerHTML = '<div class="empty-sites">No sites yet! Fill out the form to create your first one. 🚀</div>'; return; }
     const styleEmoji = {'light-airy':'☁️','bold-modern':'⚡','earthy':'🌿','luxe':'✨','playful':'🎈','professional':'💼'};
     listEl.innerHTML = sites.map(s => `
@@ -1824,6 +1829,25 @@ async function openDrawer() {
   }
 }
 
+// Renders either a plain "Build a New Site" button, or — once we know the
+// person is already at their plan's site limit — an "Upgrade" button plus a
+// plain-language note, so they don't click through the whole wizard only to
+// have the save fail at the very end.
+const PLAN_LABEL = { free: 'Free', starter: 'Starter', pro: 'Pro' };
+function renderNewSiteCta(siteCount) {
+  const wrap = document.getElementById('new-site-cta');
+  if (!wrap) return;
+  const limit = CLIENT_SITE_LIMITS[authPlan] ?? 1;
+  const atLimit = authToken && siteCount !== null && siteCount >= limit;
+  if (atLimit) {
+    wrap.innerHTML = `
+      <button class="site-item-open" style="width:100%;padding:10px;border-color:var(--danger);color:var(--danger);font-size:13px;" onclick="closeDrawer();openUpgradeModal();">⬆ Upgrade to Build More Sites</button>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center;line-height:1.4;">Your ${PLAN_LABEL[authPlan] || 'Free'} plan includes ${limit} site${limit===1?'':'s'}. Upgrade to Pro for unlimited sites.</div>`;
+  } else {
+    wrap.innerHTML = `<button class="site-item-open" style="width:100%;padding:10px;border-color:var(--brand);color:var(--brand);font-size:13px;" onclick="buildNewSite()">➕ Build a New Site</button>`;
+  }
+}
+
 function closeDrawer() { document.getElementById('sites-drawer').classList.remove('open'); }
 
 // Permanently removes a saved site. Confirmed inline (native confirm) since
@@ -1840,9 +1864,11 @@ async function deleteSite(uuid, btnEl) {
     if (!res.ok) throw new Error('Delete failed');
     if (row) row.remove();
     const listEl = document.getElementById('sites-list');
-    if (listEl && !listEl.querySelector('.site-item')) {
+    const remaining = listEl ? listEl.querySelectorAll('.site-item').length : 0;
+    if (listEl && !remaining) {
       listEl.innerHTML = '<div class="empty-sites">No sites yet! Fill out the form to create your first one. 🚀</div>';
     }
+    renderNewSiteCta(remaining); // deleting a site can bring a free/starter plan back under the limit
     // If the site being deleted is the one currently open in the wizard, drop out of edit mode.
     if (currentSiteUuid === uuid) { editMode = false; currentSiteUuid = null; }
   } catch (e) {
@@ -1856,7 +1882,21 @@ async function deleteSite(uuid, btnEl) {
 // wizard right now. A full reload is simplest and safest here — it guarantees
 // no leftover field values or state from whatever was being edited before,
 // while keeping the person signed in (auth token lives in localStorage).
-function buildNewSite() {
+// Re-checks the plan limit right before navigating away — belt-and-suspenders
+// in case this button was rendered before a plan/site-count change caught up
+// (renderNewSiteCta() is the primary gate; this just guards against stale UI).
+async function buildNewSite() {
+  if (authToken) {
+    try {
+      const res = await fetch('/api/sites', { headers: { 'Authorization': `Bearer ${authToken}` } });
+      const sites = await res.json();
+      const limit = CLIENT_SITE_LIMITS[authPlan] ?? 1;
+      if (Array.isArray(sites) && sites.length >= limit) {
+        renderNewSiteCta(sites.length);
+        return;
+      }
+    } catch (e) { /* if the check fails, fall through — the server enforces the real limit on save anyway */ }
+  }
   window.location.href = '/';
 }
 
