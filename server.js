@@ -1414,7 +1414,8 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
 .footer-name{font-size:18px;font-weight:800;color:${f.footerText};}
 .footer-copy{font-size:13px;color:${f.footerText};opacity:0.5;}
 .footer-links{display:flex;gap:24px;font-size:13px;color:${f.footerText};opacity:0.6;}
-@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}nav{padding:14px 20px;}}
+@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}nav{padding:12px 16px;flex-wrap:nowrap;}.nav-links{display:none;}.nav-cta{padding:8px 16px;font-size:13px;white-space:nowrap;}footer{flex-direction:column;align-items:flex-start;gap:10px;}}
+@media(max-width:420px){nav{padding:10px 14px;}.nav-cta{padding:7px 12px;font-size:12px;}}
 </style></head><body>
 <nav>
   ${logoHtml}
