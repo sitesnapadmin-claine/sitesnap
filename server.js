@@ -1230,6 +1230,109 @@ document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Ent
 </script></body></html>`);
 });
 
+// ── ADMIN DASHBOARD ─────────────────────────────────────────────────────────────
+// A single shared password (set via ADMIN_PASSWORD) gates a read-only overview
+// of signups, plans, and saved sites — so the owner can check on the business
+// without touching the database or an API client.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const adminLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+
+function requireAdmin(req, res, next) {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Admin login required' });
+    try {
+          const claims = jwt.verify(token, JWT_SECRET);
+          if (!claims.admin) throw new Error('not an admin token');
+          next();
+    } catch {
+          return res.status(401).json({ error: 'Invalid or expired admin session' });
+    }
+}
+
+app.post('/api/admin/login', adminLoginLimiter, (req, res) => {
+    if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin dashboard is not configured yet (ADMIN_PASSWORD not set).' });
+    const { password } = req.body || {};
+    if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Incorrect password' });
+    const token = jwt.sign({ admin: true }, JWT_SECRET, { expiresIn: '12h' });
+    res.json({ token });
+});
+
+app.get('/api/admin/overview', requireAdmin, async (req, res) => {
+    try {
+          const byPlan = await dbAll("SELECT plan, COUNT(*) as count FROM users GROUP BY plan");
+          const counts = { free: 0, starter: 0, pro: 0 };
+          byPlan.forEach(r => { counts[r.plan || 'free'] = Number(r.count); });
+          const totalUsers = counts.free + counts.starter + counts.pro;
+      
+          const totalSitesRow = await dbGet('SELECT COUNT(*) as count FROM sites');
+          const totalSites = Number(totalSitesRow?.count || 0);
+      
+          // Estimated, current-state revenue — Starter is one-time so this counts
+          // everyone currently marked starter; Pro is recurring so this is live MRR.
+          // There's no separate purchase ledger, so past upgrades that later
+          // downgraded/cancelled won't show here — it's a snapshot, not history.
+          const mrr = counts.pro * ((PLANS.pro?.price || 1200) / 100);
+          const starterRevenue = counts.starter * ((PLANS.starter?.price || 2900) / 100);
+      
+          const sinceClause = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
+          const signupRows = await dbAll(
+                  `SELECT DATE(created_at) as day, COUNT(*) as count FROM users WHERE created_at >= ${sinceClause} GROUP BY DATE(created_at) ORDER BY day`
+                );
+      
+          res.json({
+                  totalUsers,
+                  byPlan: counts,
+                  totalSites,
+                  mrr,
+                  starterRevenue,
+                  signupsLast30Days: signupRows.map(r => ({ day: r.day, count: Number(r.count) })),
+          });
+    } catch (e) {
+          console.error('admin/overview error:', e.message);
+          res.status(500).json({ error: 'Could not load overview' });
+    }
+});
+
+app.get('/api/admin/customers', requireAdmin, async (req, res) => {
+    try {
+          const search = (req.query.search || '').trim().toLowerCase();
+          const users = search
+            ? await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users WHERE LOWER(email) LIKE ? ORDER BY created_at DESC', `%${search}%`)
+                  : await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users ORDER BY created_at DESC');
+      
+          const sites = await dbAll('SELECT uuid, user_id, subdomain, custom_domain, created_at, data FROM sites ORDER BY created_at DESC');
+          const sitesByUser = {};
+          for (const s of sites) {
+                  let bizName = '(untitled)';
+                  try { bizName = JSON.parse(s.data).bizName || bizName; } catch (_) {}
+                  (sitesByUser[s.user_id] ||= []).push({
+                            uuid: s.uuid,
+                            bizName,
+                            url: `${BASE_URL}/preview/${s.uuid}`,
+                            customDomain: s.custom_domain || null,
+                            createdAt: s.created_at,
+                  });
+          }
+      
+          res.json(users.map(u => ({
+                  id: u.id,
+                  email: u.email,
+                  name: u.name || null,
+                  plan: u.plan || 'free',
+                  hasBilling: Boolean(u.stripe_customer_id),
+                  createdAt: u.created_at,
+                  sites: sitesByUser[u.id] || [],
+          })));
+    } catch (e) {
+          console.error('admin/customers error:', e.message);
+          res.status(500).json({ error: 'Could not load customers' });
+    }
+});
+
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 // ── PREVIEW ROUTE ──────────────────────────────────────────────────────────────
 app.get('/preview/:uuid', async (req, res) => {
   const row = await dbGet('SELECT data FROM sites WHERE uuid = ?', req.params.uuid);
