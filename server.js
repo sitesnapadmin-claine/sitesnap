@@ -333,7 +333,7 @@ if (USE_PG) {
   pgPool.on('error', e => console.error('Postgres pool error:', e.message));
 } else {
   const Database = require('better-sqlite3');
-  sqliteDb = new Database(path.join(__dirname, 'sitesnap.db'));
+  sqliteDb = new Database(path.join(__dirname, process.env.SQLITE_PATH || 'sitesnap.db'));
   sqliteDb.pragma('foreign_keys = OFF');
 }
 
@@ -1689,6 +1689,7 @@ function buttonHref(action) {
   if (type === 'url') {
     // Anything not plainly http(s) gets prefixed, which also neutralises
     // javascript: and data: payloads rather than emitting them as-is.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^https?:\/\//i.test(raw)) return null;
     const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^\/+/, '');
     return /^https?:\/\/[^\s/$.?#][^\s]*$/i.test(url) ? url : null;
   }
