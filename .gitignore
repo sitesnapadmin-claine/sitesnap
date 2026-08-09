@@ -1,6 +1,7 @@
 node_modules/
 .env
 sitesnap.db
+test-*.db
 uploads/
 *.log
 .DS_Store
