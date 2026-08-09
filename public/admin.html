@@ -22,7 +22,10 @@
   /* ── Login screen ─────────────────────────────────────────── */
   #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .login-card { background: var(--white); border-radius: 16px; padding: 40px; width: 100%; max-width: 380px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); text-align: center; }
-  .login-card .logo-icon { width: 48px; height: 48px; background: var(--brand); border-radius: 12px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 800; font-size: 20px; }
+  .login-card .logo-icon { width: 48px; height: 48px; background: var(--brand); border-radius: 12px; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; }
+  .login-card .logo-icon svg { width: 26px; height: 26px; fill: white; }
+  .login-card .logo-name { display: block; font-size: 20px; font-weight: 800; color: var(--text); letter-spacing: -0.5px; margin-bottom: 4px; }
+  .login-card .logo-name span { color: var(--brand); }
   .login-card h1 { font-size: 20px; margin: 0 0 4px; }
   .login-card p { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
   .login-card input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 15px; margin-bottom: 12px; outline: none; font-family: inherit; }
@@ -36,7 +39,11 @@
   #dashboard { display: none; }
   header.top { background: var(--white); border-bottom: 1px solid var(--border); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; }
-  .brand .dot { width: 30px; height: 30px; background: var(--brand); border-radius: 8px; }
+  .brand .logo-icon { width: 32px; height: 32px; background: var(--brand); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .brand .logo-icon svg { width: 18px; height: 18px; fill: white; }
+  .brand .logo-name { letter-spacing: -0.5px; }
+  .brand .logo-name span { color: var(--brand); }
+  .brand .admin-tag { color: var(--muted); font-weight: 600; }
   .top-actions { display: flex; align-items: center; gap: 14px; }
   .top-actions button { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; font-size: 13px; color: var(--muted); cursor: pointer; font-family: inherit; }
   .top-actions button:hover { border-color: var(--brand); color: var(--brand); }
@@ -83,8 +90,9 @@
 
 <div id="login-screen">
   <div class="login-card">
-    <div class="logo-icon">S</div>
-    <h1>SiteSnap Admin</h1>
+    <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm13 2a3 3 0 110 6 3 3 0 010-6z"/></svg></div>
+    <span class="logo-name">Site<span>Snap</span></span>
+    <h1>Admin Dashboard</h1>
     <p>Enter your admin password to view the dashboard.</p>
     <input type="password" id="pw-input" placeholder="Admin password" autocomplete="off">
     <button id="login-btn">Log in</button>
@@ -94,7 +102,11 @@
 
 <div id="dashboard">
   <header class="top">
-    <div class="brand"><div class="dot"></div> SiteSnap Admin</div>
+    <div class="brand">
+      <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm13 2a3 3 0 110 6 3 3 0 010-6z"/></svg></div>
+      <span class="logo-name">Site<span>Snap</span></span>
+      <span class="admin-tag">Admin</span>
+    </div>
     <div class="top-actions">
       <button id="refresh-btn">↻ Refresh</button>
       <button id="logout-btn">Log out</button>
