@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SiteSnap — Admin</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<style>
+  :root {
+    --brand: #6C47FF; --brand-light: #EEE9FF; --brand-dark: #4A2ECC;
+    --green: #16A34A; --green-light: #DCFCE7;
+    --amber: #D97706; --amber-light: #FEF3C7;
+    --text: #1F2333; --muted: #6B7280; --border: #E5E7EB; --white: #fff;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; margin: 0; background: #F7F7FB; color: var(--text); }
+
+  /* ── Login screen ─────────────────────────────────────────── */
+  #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .login-card { background: var(--white); border-radius: 16px; padding: 40px; width: 100%; max-width: 380px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); text-align: center; }
+  .login-card .logo-icon { width: 48px; height: 48px; background: var(--brand); border-radius: 12px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 800; font-size: 20px; }
+  .login-card h1 { font-size: 20px; margin: 0 0 4px; }
+  .login-card p { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+  .login-card input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 15px; margin-bottom: 12px; outline: none; font-family: inherit; }
+  .login-card input:focus { border-color: var(--brand); }
+  .login-card button { width: 100%; padding: 12px; border: none; border-radius: 10px; background: var(--brand); color: white; font-weight: 600; font-size: 15px; cursor: pointer; }
+  .login-card button:hover { background: var(--brand-dark); }
+  .login-card button:disabled { opacity: 0.6; cursor: default; }
+  .login-error { color: #DC2626; font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+  /* ── Dashboard shell ──────────────────────────────────────── */
+  #dashboard { display: none; }
+  header.top { background: var(--white); border-bottom: 1px solid var(--border); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; }
+  .brand .dot { width: 30px; height: 30px; background: var(--brand); border-radius: 8px; }
+  .top-actions { display: flex; align-items: center; gap: 14px; }
+  .top-actions button { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; font-size: 13px; color: var(--muted); cursor: pointer; font-family: inherit; }
+  .top-actions button:hover { border-color: var(--brand); color: var(--brand); }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+
+  /* ── KPI cards ────────────────────────────────────────────── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .kpi-card { background: var(--white); border-radius: var(--radius); padding: 20px; border: 1px solid var(--border); }
+  .kpi-card .label { font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+  .kpi-card .value { font-size: 28px; font-weight: 800; }
+  .kpi-card .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .kpi-card.mrr .value { color: var(--green); }
+
+  /* ── Panels ───────────────────────────────────────────────── */
+  .panel { background: var(--white); border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden; }
+  .panel-head { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .panel-head h2 { font-size: 16px; margin: 0; }
+  .panel-body { padding: 20px 22px; }
+  .search-box { padding: 9px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; min-width: 220px; outline: none; }
+  .search-box:focus { border-color: var(--brand); }
+
+  /* ── Plan badges ──────────────────────────────────────────── */
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: capitalize; }
+  .badge.free { background: #F1F5F9; color: #64748B; }
+  .badge.starter { background: var(--amber-light); color: var(--amber); }
+  .badge.pro { background: var(--green-light); color: var(--green); }
+
+  /* ── Table ────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  thead th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); padding: 10px 22px; border-bottom: 1px solid var(--border); }
+  tbody td { padding: 14px 22px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #FAFAFC; }
+  .email { font-weight: 600; }
+  .muted { color: var(--muted); }
+  .site-links a { color: var(--brand); text-decoration: none; font-weight: 600; font-size: 13px; }
+  .site-links a:hover { text-decoration: underline; }
+  .site-links div { margin-bottom: 4px; }
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .loading { text-align: center; padding: 60px 20px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-card">
+    <div class="logo-icon">S</div>
+    <h1>SiteSnap Admin</h1>
+    <p>Enter your admin password to view the dashboard.</p>
+    <input type="password" id="pw-input" placeholder="Admin password" autocomplete="off">
+    <button id="login-btn">Log in</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<div id="dashboard">
+  <header class="top">
+    <div class="brand"><div class="dot"></div> SiteSnap Admin</div>
+    <div class="top-actions">
+      <button id="refresh-btn">↻ Refresh</button>
+      <button id="logout-btn">Log out</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="loading">Loading overview…</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Signups — last 30 days</h2></div>
+      <div class="panel-body">
+        <canvas id="signups-chart" height="80"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Customers</h2>
+        <input type="text" class="search-box" id="search-box" placeholder="Search by email…">
+      </div>
+      <div id="customers-wrap">
+        <div class="loading">Loading customers…</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const API = '';
+let adminToken = sessionStorage.getItem('sitesnap_admin_token') || '';
+let chart = null;
+let searchDebounce = null;
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+async function adminFetch(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: { ...(opts.headers || {}), 'Authorization': 'Bearer ' + adminToken, 'Content-Type': 'application/json' },
+  });
+  if (res.status === 401) {
+    showLogin('Your session expired — please log in again.');
+    throw new Error('unauthorized');
+  }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Request failed');
+  return res.json();
+}
+
+function showLogin(errorMsg) {
+  sessionStorage.removeItem('sitesnap_admin_token');
+  adminToken = '';
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-error').textContent = errorMsg || '';
+}
+
+function showDashboard() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  loadOverview();
+  loadCustomers();
+}
+
+async function login() {
+  const pw = document.getElementById('pw-input').value;
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!pw) return;
+  btn.disabled = true; btn.textContent = 'Logging in…';
+  try {
+    const res = await fetch(API + '/api/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'Login failed');
+    adminToken = body.token;
+    sessionStorage.setItem('sitesnap_admin_token', adminToken);
+    showDashboard();
+  } catch (e) {
+    errEl.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Log in';
+  }
+}
+
+async function loadOverview() {
+  try {
+    const o = await adminFetch('/api/admin/overview');
+    const grid = document.getElementById('kpi-grid');
+    grid.innerHTML = `
+      <div class="kpi-card"><div class="label">Total signups</div><div class="value">${o.totalUsers}</div><div class="sub">${o.byPlan.free} free · ${o.byPlan.starter} starter · ${o.byPlan.pro} pro</div></div>
+      <div class="kpi-card mrr"><div class="label">Monthly recurring revenue</div><div class="value">$${o.mrr.toLocaleString()}</div><div class="sub">${o.byPlan.pro} active Pro subscriber${o.byPlan.pro === 1 ? '' : 's'}</div></div>
+      <div class="kpi-card"><div class="label">Starter (one-time) revenue</div><div class="value">$${o.starterRevenue.toLocaleString()}</div><div class="sub">Based on ${o.byPlan.starter} current Starter account${o.byPlan.starter === 1 ? '' : 's'}</div></div>
+      <div class="kpi-card"><div class="label">Sites created</div><div class="value">${o.totalSites}</div><div class="sub">Across all customers</div></div>
+    `;
+    renderChart(o.signupsLast30Days);
+  } catch (e) {
+    if (e.message !== 'unauthorized') document.getElementById('kpi-grid').innerHTML = `<div class="empty-state">Couldn't load overview: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderChart(rows) {
+  const days = [];
+  const counts = [];
+  const map = {};
+  (rows || []).forEach(r => { map[String(r.day).slice(0, 10)] = r.count; });
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    days.push(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+    counts.push(map[key] || 0);
+  }
+  const ctx = document.getElementById('signups-chart');
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: days, datasets: [{ label: 'Signups', data: counts, backgroundColor: '#6C47FF', borderRadius: 4, maxBarThickness: 22 }] },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { grid: { display: false } } },
+    },
+  });
+}
+
+function siteLinksHtml(sites) {
+  if (!sites || !sites.length) return '<span class="muted">No sites yet</span>';
+  return sites.map(s => `<div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.bizName)} ↗</a>${s.customDomain ? ` <span class="muted">(${escapeHtml(s.customDomain)})</span>` : ''}</div>`).join('');
+}
+
+async function loadCustomers(search) {
+  const wrap = document.getElementById('customers-wrap');
+  try {
+    const q = search ? `?search=${encodeURIComponent(search)}` : '';
+    const customers = await adminFetch('/api/admin/customers' + q);
+    if (!customers.length) {
+      wrap.innerHTML = '<div class="empty-state">No customers found.</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Email</th><th>Plan</th><th>Signed up</th><th>Billing on file</th><th>Saved sites</th></tr></thead>
+        <tbody>
+          ${customers.map(c => `
+            <tr>
+              <td><div class="email">${escapeHtml(c.email)}</div>${c.name ? `<div class="muted">${escapeHtml(c.name)}</div>` : ''}</td>
+              <td><span class="badge ${escapeHtml(c.plan)}">${escapeHtml(c.plan)}</span></td>
+              <td class="muted">${fmtDate(c.createdAt)}</td>
+              <td class="muted">${c.hasBilling ? 'Yes' : 'No'}</td>
+              <td class="site-links">${siteLinksHtml(c.sites)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (e) {
+    if (e.message !== 'unauthorized') wrap.innerHTML = `<div class="empty-state">Couldn't load customers: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+document.getElementById('login-btn').addEventListener('click', login);
+document.getElementById('pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+document.getElementById('logout-btn').addEventListener('click', () => showLogin());
+document.getElementById('refresh-btn').addEventListener('click', () => { loadOverview(); loadCustomers(document.getElementById('search-box').value); });
+document.getElementById('search-box').addEventListener('input', e => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => loadCustomers(e.target.value), 300);
+});
+
+if (adminToken) showDashboard(); else showLogin();
+</script>
+</body>
+</html>
