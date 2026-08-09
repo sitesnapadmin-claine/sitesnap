@@ -395,12 +395,13 @@
   .mkt-price-card.rec .mkt-price-btn:hover { background: var(--brand-dark); }
 
   /* Final CTA banner */
-  .mkt-cta-banner { background: linear-gradient(120deg,var(--brand),#8B5CF6); border-radius: 28px; padding: 56px 32px; text-align: center; color: white; }
-  .mkt-cta-banner h2 { color: white; }
-  .mkt-cta-banner p { color: rgba(255,255,255,0.85); margin: 0 auto 26px; }
+  .mkt-cta-banner { background: linear-gradient(120deg,var(--brand),#8B5CF6); border-radius: 28px; padding: 64px 32px; text-align: center; color: white; }
+  .mkt-cta-banner h2 { color: white; margin-bottom: 14px; }
+  .mkt-cta-banner p.mkt-sub { color: rgba(255,255,255,0.85); margin: 0 auto 32px; max-width: 560px; }
   .mkt-cta-banner .btn-start { background: white; color: var(--brand); }
   .mkt-cta-banner .btn-start:hover { background: #F3F0FF; }
-  .mkt-fine { font-size: 12.5px; color: rgba(255,255,255,0.75); margin-top: 14px; }
+  .cta-btn-lg { padding: 18px 44px; font-size: 17px; }
+  .mkt-fine { font-size: 12.5px; color: rgba(255,255,255,0.75); margin-top: 16px; }
 
   /* Footer */
   .mkt-footer { padding: 36px 24px 48px; text-align: center; }
@@ -1023,8 +1024,8 @@
     <div class="mkt-wrap">
       <div class="mkt-cta-banner">
         <h2 class="mkt-h2">Ready to get your business online?</h2>
-        <p class="mkt-sub" style="margin:0 auto;">Answer a few questions and walk away with a real website — free to start, no code required.</p>
-        <button class="btn-start" onclick="startWizard()">Get Started →</button>
+        <p class="mkt-sub">Answer a few questions and walk away with a real website — free to start, no code required.</p>
+        <button class="btn-start cta-btn-lg" onclick="startWizard()">Get Started →</button>
         <div class="mkt-fine">Free to start · No credit card required</div>
       </div>
     </div>
