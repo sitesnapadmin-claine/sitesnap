@@ -5,6 +5,23 @@ const dns = require('dns').promises;
 const crypto = require('crypto');
 const multer = require('multer');
 const rateLimit = require('express-rate-limit');
+
+// ── SENTRY (optional error monitoring — inactive until SENTRY_DSN is set) ──────
+let Sentry = null;
+if (process.env.SENTRY_DSN) {
+  try {
+    Sentry = require('@sentry/node');
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      environment: process.env.NODE_ENV || 'production',
+      tracesSampleRate: 0, // errors only — no perf tracing (keeps free-tier usage low)
+    });
+    console.log('🔭 Sentry error monitoring enabled');
+  } catch (e) {
+    console.warn('Sentry package not installed — run: npm install @sentry/node');
+    Sentry = null;
+  }
+}
 // better-sqlite3 is a native module and only needed for the SQLite fallback —
 // required lazily so a Postgres deploy never depends on it compiling.
 const bcrypt = require('bcryptjs');
@@ -1716,6 +1733,23 @@ function getTheme(s) {
   };
   return themes[style]||themes['light-airy'];
 }
+
+// ── SENTRY ERROR HANDLING (must be registered after all routes) ────────────────
+if (Sentry) {
+  Sentry.setupExpressErrorHandler(app);
+}
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Something went wrong. Please try again.' });
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+  if (Sentry) Sentry.captureException(reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  if (Sentry) Sentry.captureException(err);
+});
 
 // ── START ──────────────────────────────────────────────────────────────────────
 initDb()
