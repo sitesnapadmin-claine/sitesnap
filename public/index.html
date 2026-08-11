@@ -497,6 +497,24 @@
   .tmpl-mini-feat b { display: block; font-size: 6.8px; margin-bottom: 1px; }
   .tmpl-mini-feat span { font-size: 8.5px; }
 
+  /* Mini testimonial */
+  .tmpl-mini-testimonial { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 16px; text-align: center; }
+  .tmpl-mini-stars { font-size: 9px; margin-bottom: 6px; letter-spacing: 1px; }
+  .tmpl-mini-quote-big { font-size: 8.5px; font-style: italic; line-height: 1.45; margin-bottom: 9px; max-width: 92%; }
+  .tmpl-mini-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 800; margin-bottom: 6px; }
+  .tmpl-mini-t-name { font-size: 7.3px; font-weight: 800; }
+  .tmpl-mini-t-role { font-size: 6.2px; opacity: 0.6; }
+
+  /* Mini stats/facts */
+  .tmpl-mini-stats { display: flex; justify-content: space-around; align-items: center; height: 100%; padding: 0 8px; text-align: center; }
+  .tmpl-mini-stat b { display: block; font-size: 15px; font-weight: 800; line-height: 1.1; }
+  .tmpl-mini-stat span { font-size: 5.8px; opacity: 0.7; display: block; margin-top: 2px; }
+
+  /* Mini footer / CTA banner */
+  .tmpl-mini-footer-cta { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 14px; }
+  .tmpl-mini-footer-cta h4 { font-size: 11px; font-weight: 800; margin-bottom: 5px; }
+  .tmpl-mini-footer-cta p { font-size: 6.5px; opacity: 0.75; margin-bottom: 9px; }
+
   .tmpl-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
   .tmpl-niche { font-size: 13px; font-weight: 800; }
   .tmpl-style-tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 3px 9px; border-radius: 20px; background: var(--brand-light); color: var(--brand); }
@@ -1134,13 +1152,12 @@
             </div>
             <div class="tmpl-laptop">
               <div class="tmpl-laptop-screen" style="background:#FFFEF9;color:#3D2B1F;">
-                <div class="tmpl-mini-about">
-                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1487070183336-b863922373d4?auto=format&fit=crop&w=300&q=60');"></div>
-                  <div class="tmpl-mini-about-copy">
-                    <h4>We exist for people who want flowers that feel personal…</h4>
-                    <p>Every arrangement is cut and designed the morning it ships — never from a cooler.</p>
-                    <span class="tmpl-mini-btn" style="background:#3D2B1F;color:#FFFEF9;">Book Now →</span>
-                  </div>
+                <div class="tmpl-mini-testimonial">
+                  <div class="tmpl-mini-stars" style="color:#C4966A;">★★★★★</div>
+                  <div class="tmpl-mini-quote-big">"They made our wedding arrangements absolutely unforgettable."</div>
+                  <div class="tmpl-mini-avatar" style="background:#F5EFE6;color:#3D2B1F;">J</div>
+                  <div class="tmpl-mini-t-name">Jamie R.</div>
+                  <div class="tmpl-mini-t-role">Bride, Austin TX</div>
                 </div>
               </div>
               <div class="tmpl-laptop-base"></div>
@@ -1185,13 +1202,10 @@
             </div>
             <div class="tmpl-laptop">
               <div class="tmpl-laptop-screen" style="background:#111;color:#fff;">
-                <div class="tmpl-mini-about">
-                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=300&q=60');"></div>
-                  <div class="tmpl-mini-about-copy">
-                    <h4>We exist for teams who've outgrown manual workflows…</h4>
-                    <p style="opacity:0.65;">We've shipped, broken, and rebuilt this ourselves — so you don't have to.</p>
-                    <span class="tmpl-mini-btn" style="background:#FFFFFF;color:#0D0D0D;">Get Started →</span>
-                  </div>
+                <div class="tmpl-mini-stats">
+                  <div class="tmpl-mini-stat"><b>2,400+</b><span>Teams onboarded</span></div>
+                  <div class="tmpl-mini-stat"><b>70%</b><span>Faster setup</span></div>
+                  <div class="tmpl-mini-stat"><b>99.9%</b><span>Uptime SLA</span></div>
                 </div>
               </div>
               <div class="tmpl-laptop-base"></div>
@@ -1249,13 +1263,10 @@
             </div>
             <div class="tmpl-ipad">
               <div class="tmpl-ipad-screen" style="background:#F4F1EC;color:#2C1A0E;">
-                <div class="tmpl-mini-feat-wrap">
-                  <div class="tmpl-mini-feat-title">What makes Root &amp; Bean different</div>
-                  <div class="tmpl-mini-feat-grid">
-                    <div class="tmpl-mini-feat" style="background:#FFFDF8;"><span>🌱</span><b>Direct trade</b>We pay farmers fairly, always.</div>
-                    <div class="tmpl-mini-feat" style="background:#FFFDF8;"><span>🤝</span><b>Roasted weekly</b>Never sits on a shelf for months.</div>
-                    <div class="tmpl-mini-feat" style="background:#FFFDF8;"><span>🍀</span><b>Zero-waste packaging</b>Compostable bags, every batch.</div>
-                  </div>
+                <div class="tmpl-mini-stats">
+                  <div class="tmpl-mini-stat"><b>12</b><span>Farms partnered</span></div>
+                  <div class="tmpl-mini-stat"><b>40k+</b><span>Cups served/mo</span></div>
+                  <div class="tmpl-mini-stat"><b>100%</b><span>Compostable packaging</span></div>
                 </div>
               </div>
             </div>
@@ -1300,13 +1311,12 @@
             </div>
             <div class="tmpl-ipad">
               <div class="tmpl-ipad-screen" style="background:#0A0A0A;color:#F5F0E8;">
-                <div class="tmpl-mini-feat-wrap">
-                  <div class="tmpl-mini-feat-title">What makes Aurelia different</div>
-                  <div class="tmpl-mini-feat-grid">
-                    <div class="tmpl-mini-feat" style="background:#141414;"><span>💎</span><b>Ethically sourced</b><span style="opacity:0.65;font-size:6.3px;">Every stone, traceable.</span></div>
-                    <div class="tmpl-mini-feat" style="background:#141414;"><span>🤍</span><b>Handcrafted in-house</b><span style="opacity:0.65;font-size:6.3px;">Not outsourced, ever.</span></div>
-                    <div class="tmpl-mini-feat" style="background:#141414;"><span>✦</span><b>Lifetime care</b><span style="opacity:0.65;font-size:6.3px;">Free cleaning and resizing.</span></div>
-                  </div>
+                <div class="tmpl-mini-testimonial">
+                  <div class="tmpl-mini-stars" style="color:#C9A84C;">★★★★★</div>
+                  <div class="tmpl-mini-quote-big" style="opacity:0.9;">"The custom engagement ring exceeded every expectation."</div>
+                  <div class="tmpl-mini-avatar" style="background:#1C1C1C;color:#C9A84C;">E</div>
+                  <div class="tmpl-mini-t-name">Elena V.</div>
+                  <div class="tmpl-mini-t-role" style="opacity:0.55;">Custom order client</div>
                 </div>
               </div>
             </div>
@@ -1338,26 +1348,23 @@
             </div>
             <div class="tmpl-laptop">
               <div class="tmpl-laptop-screen" style="background:#FFFFFF;color:#1A0A00;">
-                <div class="tmpl-mini-about">
-                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1486427944299-d1955d23e34d?auto=format&fit=crop&w=300&q=60');"></div>
-                  <div class="tmpl-mini-about-copy">
-                    <h4>We exist for people throwing a party that needs a little magic…</h4>
-                    <p>We show up with the cart, the flavors, and the mess-free setup.</p>
-                    <span class="tmpl-mini-btn" style="background:#FF6B6B;color:#FFFFFF;">Order Online →</span>
+                <div class="tmpl-mini-feat-wrap">
+                  <div class="tmpl-mini-feat-title">What makes Sweet Scoop different</div>
+                  <div class="tmpl-mini-feat-grid">
+                    <div class="tmpl-mini-feat" style="background:#FFF8F0;"><span>🎈</span><b>Full-service catering</b>We bring the cart, you bring the guests.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFF8F0;"><span>🌈</span><b>Made fresh weekly</b>Never frozen for months.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFF8F0;"><span>🏆</span><b>Loved by kids &amp; adults</b>200+ parties and counting.</div>
                   </div>
                 </div>
               </div>
               <div class="tmpl-laptop-base"></div>
             </div>
             <div class="tmpl-ipad">
-              <div class="tmpl-ipad-screen" style="background:#FFF8F0;color:#1A0A00;">
-                <div class="tmpl-mini-feat-wrap">
-                  <div class="tmpl-mini-feat-title">What makes Sweet Scoop different</div>
-                  <div class="tmpl-mini-feat-grid">
-                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🎈</span><b>Full-service catering</b>We bring the cart, you bring the guests.</div>
-                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🌈</span><b>Made fresh weekly</b>Never frozen for months.</div>
-                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🏆</span><b>Loved by kids &amp; adults</b>200+ parties and counting.</div>
-                  </div>
+              <div class="tmpl-ipad-screen" style="background:#FF6B6B;color:#FFFFFF;">
+                <div class="tmpl-mini-footer-cta">
+                  <h4>Ready to book your event?</h4>
+                  <p style="opacity:0.9;">Get a custom flavor menu &amp; quote within 24 hours.</p>
+                  <span class="tmpl-mini-btn" style="background:#FFFFFF;color:#FF6B6B;">Get a Quote →</span>
                 </div>
               </div>
             </div>
@@ -1389,26 +1396,20 @@
             </div>
             <div class="tmpl-laptop">
               <div class="tmpl-laptop-screen" style="background:#FFFFFF;color:#0F172A;">
-                <div class="tmpl-mini-about">
-                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=300&q=60');"></div>
-                  <div class="tmpl-mini-about-copy">
-                    <h4>We exist for people who feel lost in the legal system…</h4>
-                    <p>We explain every step in plain English — and we're honest when a case isn't worth pursuing.</p>
-                    <span class="tmpl-mini-btn" style="background:#0F172A;color:#FFFFFF;">Free Consult →</span>
-                  </div>
+                <div class="tmpl-mini-stats">
+                  <div class="tmpl-mini-stat"><b>500+</b><span>Cases won</span></div>
+                  <div class="tmpl-mini-stat"><b>98%</b><span>Client satisfaction</span></div>
+                  <div class="tmpl-mini-stat"><b>20 yrs</b><span>Combined experience</span></div>
                 </div>
               </div>
               <div class="tmpl-laptop-base"></div>
             </div>
             <div class="tmpl-ipad">
-              <div class="tmpl-ipad-screen" style="background:#F0F4FA;color:#0F172A;">
-                <div class="tmpl-mini-feat-wrap">
-                  <div class="tmpl-mini-feat-title">What makes Sterling &amp; Cole different</div>
-                  <div class="tmpl-mini-feat-grid">
-                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>📊</span><b>No win, no fee</b>You don't pay unless we win.</div>
-                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🔒</span><b>Direct attorney access</b>Not a call center.</div>
-                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>✅</span><b>Decades of trial experience</b>Prepared like it's going to court.</div>
-                  </div>
+              <div class="tmpl-ipad-screen" style="background:#0F172A;color:#FFFFFF;">
+                <div class="tmpl-mini-footer-cta">
+                  <h4>Free case review, no obligation.</h4>
+                  <p style="opacity:0.75;">Talk to an attorney directly — not a call center.</p>
+                  <span class="tmpl-mini-btn" style="background:#FFFFFF;color:#0F172A;">Schedule Now →</span>
                 </div>
               </div>
             </div>
