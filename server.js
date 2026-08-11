@@ -1238,99 +1238,99 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const adminLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
 
 function requireAdmin(req, res, next) {
-    const token = (req.headers.authorization || '').replace('Bearer ', '');
-    if (!token) return res.status(401).json({ error: 'Admin login required' });
-    try {
-          const claims = jwt.verify(token, JWT_SECRET);
-          if (!claims.admin) throw new Error('not an admin token');
-          next();
-    } catch {
-          return res.status(401).json({ error: 'Invalid or expired admin session' });
-    }
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Admin login required' });
+  try {
+    const claims = jwt.verify(token, JWT_SECRET);
+    if (!claims.admin) throw new Error('not an admin token');
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired admin session' });
+  }
 }
 
 app.post('/api/admin/login', adminLoginLimiter, (req, res) => {
-    if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin dashboard is not configured yet (ADMIN_PASSWORD not set).' });
-    const { password } = req.body || {};
-    if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Incorrect password' });
-    const token = jwt.sign({ admin: true }, JWT_SECRET, { expiresIn: '12h' });
-    res.json({ token });
+  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin dashboard is not configured yet (ADMIN_PASSWORD not set).' });
+  const { password } = req.body || {};
+  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Incorrect password' });
+  const token = jwt.sign({ admin: true }, JWT_SECRET, { expiresIn: '12h' });
+  res.json({ token });
 });
 
 app.get('/api/admin/overview', requireAdmin, async (req, res) => {
-    try {
-          const byPlan = await dbAll("SELECT plan, COUNT(*) as count FROM users GROUP BY plan");
-          const counts = { free: 0, starter: 0, pro: 0 };
-          byPlan.forEach(r => { counts[r.plan || 'free'] = Number(r.count); });
-          const totalUsers = counts.free + counts.starter + counts.pro;
-      
-          const totalSitesRow = await dbGet('SELECT COUNT(*) as count FROM sites');
-          const totalSites = Number(totalSitesRow?.count || 0);
-      
-          // Estimated, current-state revenue — Starter is one-time so this counts
-          // everyone currently marked starter; Pro is recurring so this is live MRR.
-          // There's no separate purchase ledger, so past upgrades that later
-          // downgraded/cancelled won't show here — it's a snapshot, not history.
-          const mrr = counts.pro * ((PLANS.pro?.price || 1200) / 100);
-          const starterRevenue = counts.starter * ((PLANS.starter?.price || 2900) / 100);
-      
-          const sinceClause = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
-          const signupRows = await dbAll(
-                  `SELECT DATE(created_at) as day, COUNT(*) as count FROM users WHERE created_at >= ${sinceClause} GROUP BY DATE(created_at) ORDER BY day`
-                );
-      
-          res.json({
-                  totalUsers,
-                  byPlan: counts,
-                  totalSites,
-                  mrr,
-                  starterRevenue,
-                  signupsLast30Days: signupRows.map(r => ({ day: r.day, count: Number(r.count) })),
-          });
-    } catch (e) {
-          console.error('admin/overview error:', e.message);
-          res.status(500).json({ error: 'Could not load overview' });
-    }
+  try {
+    const byPlan = await dbAll("SELECT plan, COUNT(*) as count FROM users GROUP BY plan");
+    const counts = { free: 0, starter: 0, pro: 0 };
+    byPlan.forEach(r => { counts[r.plan || 'free'] = Number(r.count); });
+    const totalUsers = counts.free + counts.starter + counts.pro;
+
+    const totalSitesRow = await dbGet('SELECT COUNT(*) as count FROM sites');
+    const totalSites = Number(totalSitesRow?.count || 0);
+
+    // Estimated, current-state revenue — Starter is one-time so this counts
+    // everyone currently marked starter; Pro is recurring so this is live MRR.
+    // There's no separate purchase ledger, so past upgrades that later
+    // downgraded/cancelled won't show here — it's a snapshot, not history.
+    const mrr = counts.pro * ((PLANS.pro?.price || 1200) / 100);
+    const starterRevenue = counts.starter * ((PLANS.starter?.price || 2900) / 100);
+
+    const sinceClause = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
+    const signupRows = await dbAll(
+      `SELECT DATE(created_at) as day, COUNT(*) as count FROM users WHERE created_at >= ${sinceClause} GROUP BY DATE(created_at) ORDER BY day`
+    );
+
+    res.json({
+      totalUsers,
+      byPlan: counts,
+      totalSites,
+      mrr,
+      starterRevenue,
+      signupsLast30Days: signupRows.map(r => ({ day: r.day, count: Number(r.count) })),
+    });
+  } catch (e) {
+    console.error('admin/overview error:', e.message);
+    res.status(500).json({ error: 'Could not load overview' });
+  }
 });
 
 app.get('/api/admin/customers', requireAdmin, async (req, res) => {
-    try {
-          const search = (req.query.search || '').trim().toLowerCase();
-          const users = search
-            ? await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users WHERE LOWER(email) LIKE ? ORDER BY created_at DESC', `%${search}%`)
-                  : await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users ORDER BY created_at DESC');
-      
-          const sites = await dbAll('SELECT uuid, user_id, subdomain, custom_domain, created_at, data FROM sites ORDER BY created_at DESC');
-          const sitesByUser = {};
-          for (const s of sites) {
-                  let bizName = '(untitled)';
-                  try { bizName = JSON.parse(s.data).bizName || bizName; } catch (_) {}
-                  (sitesByUser[s.user_id] ||= []).push({
-                            uuid: s.uuid,
-                            bizName,
-                            url: `${BASE_URL}/preview/${s.uuid}`,
-                            customDomain: s.custom_domain || null,
-                            createdAt: s.created_at,
-                  });
-          }
-      
-          res.json(users.map(u => ({
-                  id: u.id,
-                  email: u.email,
-                  name: u.name || null,
-                  plan: u.plan || 'free',
-                  hasBilling: Boolean(u.stripe_customer_id),
-                  createdAt: u.created_at,
-                  sites: sitesByUser[u.id] || [],
-          })));
-    } catch (e) {
-          console.error('admin/customers error:', e.message);
-          res.status(500).json({ error: 'Could not load customers' });
+  try {
+    const search = (req.query.search || '').trim().toLowerCase();
+    const users = search
+      ? await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users WHERE LOWER(email) LIKE ? ORDER BY created_at DESC', `%${search}%`)
+      : await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users ORDER BY created_at DESC');
+
+    const sites = await dbAll('SELECT uuid, user_id, subdomain, custom_domain, created_at, data FROM sites ORDER BY created_at DESC');
+    const sitesByUser = {};
+    for (const s of sites) {
+      let bizName = '(untitled)';
+      try { bizName = JSON.parse(s.data).bizName || bizName; } catch (_) {}
+      (sitesByUser[s.user_id] ||= []).push({
+        uuid: s.uuid,
+        bizName,
+        url: `${BASE_URL}/preview/${s.uuid}`,
+        customDomain: s.custom_domain || null,
+        createdAt: s.created_at,
+      });
     }
+
+    res.json(users.map(u => ({
+      id: u.id,
+      email: u.email,
+      name: u.name || null,
+      plan: u.plan || 'free',
+      hasBilling: Boolean(u.stripe_customer_id),
+      createdAt: u.created_at,
+      sites: sitesByUser[u.id] || [],
+    })));
+  } catch (e) {
+    console.error('admin/customers error:', e.message);
+    res.status(500).json({ error: 'Could not load customers' });
+  }
 });
 
 app.get('/admin', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // ── PREVIEW ROUTE ──────────────────────────────────────────────────────────────
@@ -1557,12 +1557,35 @@ async function buildWebsite(s, uuid, baseUrl) {
 
   // Which sections to render. Anything unset defaults to visible so existing
   // sites are unchanged — except the testimonial, which is opt-in.
+  // FAQs and gallery images: same rule as testimonials — an entry only renders
+  // once it actually has content, so a half-filled row never ships as an empty
+  // question or a broken image.
+  const faqs = (Array.isArray(s.faqs) ? s.faqs : [])
+    .slice(0, 20)
+    .map(f => ({ q: ((f && f.q) || '').trim(), a: ((f && f.a) || '').trim() }))
+    .filter(f => f.q && f.a);
+  const gallery = (Array.isArray(s.gallery) ? s.gallery : [])
+    .slice(0, 30)
+    .map(g => ({ url: ((g && g.url) || '').trim(), caption: ((g && g.caption) || '').trim() }))
+    .filter(g => g.url);
+
   const sec = s.sections || {};
   const show = {
     about: sec.about !== false,
     services: sec.services !== false,
     testimonial: sec.testimonial === true && testimonials.length > 0,
+    gallery: sec.gallery === true && gallery.length > 0,
+    faq: sec.faq === true && faqs.length > 0,
     cta: sec.cta !== false,
+  };
+
+  // Resolved background config per section (null = keep the theme's flat colour)
+  const bg = {
+    hero: bgConfig(s, 'hero'),
+    testimonial: bgConfig(s, 'testimonial'),
+    gallery: bgConfig(s, 'gallery'),
+    faq: bgConfig(s, 'faq'),
+    cta: bgConfig(s, 'cta'),
   };
 
   // Feature cards: owner-editable, falling back to the generic copy.
@@ -1584,7 +1607,10 @@ async function buildWebsite(s, uuid, baseUrl) {
 
   // A button pointing at a section the owner switched off would be a dead
   // anchor, so retarget it to a section that still exists (or drop the link).
-  const sectionVisible = { about: show.about, services: show.services, contact: show.cta };
+  const sectionVisible = {
+    about: show.about, services: show.services, contact: show.cta,
+    gallery: show.gallery, faq: show.faq,
+  };
   const safeCta = (key, fallbackLabel, fallbackSection) => {
     const a = Object.assign({}, ctaFor(s, key, fallbackLabel, fallbackSection));
     if ((a.type || 'section') === 'section') {
@@ -1601,6 +1627,8 @@ async function buildWebsite(s, uuid, baseUrl) {
   const navLinksHtml = [
     show.about ? '<a href="#about">About</a>' : '',
     show.services ? '<a href="#services">Services</a>' : '',
+    show.gallery ? '<a href="#gallery">Gallery</a>' : '',
+    show.faq ? '<a href="#faq">FAQ</a>' : '',
     show.cta ? '<a href="#contact">Contact</a>' : '',
   ].join('');
 
@@ -1648,6 +1676,13 @@ nav{background:${f.navBg};padding:18px 48px;display:flex;align-items:center;just
 .nav-links{display:flex;gap:32px;font-size:14px;font-weight:500;color:${f.navText};opacity:0.8;}
 .nav-cta{display:inline-block;text-decoration:none;padding:10px 24px;background:${f.primary};color:${f.ctaText};border-radius:${f.btnRadius};font-size:14px;font-weight:700;cursor:pointer;border:none;}
 .hero{padding:${f.heroPadding};background:${f.heroBg};display:grid;grid-template-columns:1fr ${f.heroImgCol};gap:64px;align-items:center;${f.heroExtra}}
+${bg.hero ? `.hero{${bgStyle(bg.hero, 'left')}}
+.hero h1{color:${bgTextVars(bg.hero).heading};text-shadow:${bgTextVars(bg.hero).shadow};}
+.hero-sub{color:${bgTextVars(bg.hero).body};text-shadow:${bgTextVars(bg.hero).shadow};}
+.hero-eyebrow{color:${bgTextVars(bg.hero).heading};opacity:0.85;text-shadow:${bgTextVars(bg.hero).shadow};}
+/* Photo already fills the hero — the inset image would just fight it */
+.hero{grid-template-columns:1fr;}
+.hero .hero-img-wrap{display:none;}` : ''}
 .hero-img-wrap{border-radius:${f.imgRadius};overflow:hidden;aspect-ratio:4/3;background:${f.heroImgBg};display:flex;align-items:center;justify-content:center;${f.heroImgExtra}}
 .hero h1{font-family:${f.headFont};font-size:clamp(32px,5vw,58px);font-weight:${f.heroWeight};line-height:1.1;color:${f.heroText};margin-bottom:20px;letter-spacing:${f.heroTracking};}
 .hero h1 em{color:${f.accent};font-style:normal;}
@@ -1686,11 +1721,60 @@ section{padding:96px 48px;}
 .cta-section{background:${f.ctaSectionBg};text-align:center;padding:96px 48px;${f.ctaExtra}}
 .cta-section h2{font-family:${f.headFont};font-size:clamp(32px,5vw,48px);font-weight:${f.heroWeight};color:${f.ctaSectionText};margin-bottom:16px;letter-spacing:${f.heroTracking};}
 .cta-section p{font-size:18px;color:${f.ctaSectionSub};margin-bottom:40px;max-width:500px;margin-left:auto;margin-right:auto;}
+${bg.cta ? `.cta-section{${bgStyle(bg.cta)}}
+.cta-section h2{color:${bgTextVars(bg.cta).heading};text-shadow:${bgTextVars(bg.cta).shadow};}
+.cta-section p{color:${bgTextVars(bg.cta).body};text-shadow:${bgTextVars(bg.cta).shadow};}` : ''}
+${bg.testimonial ? `.testimonial-section{${bgStyle(bg.testimonial)}}
+.testimonial-section .eyebrow{color:${bgTextVars(bg.testimonial).heading};opacity:0.85;text-shadow:${bgTextVars(bg.testimonial).shadow};}
+.testimonial-section .testimonial-card{background:${bgTextVars(bg.testimonial).card};border:${bgTextVars(bg.testimonial).cardBorder};backdrop-filter:blur(6px);}
+.testimonial-section .quote-text{color:${bgTextVars(bg.testimonial).heading};}
+.testimonial-section .quote-author{color:${bgTextVars(bg.testimonial).body};}
+.testimonial-section .quote-mark{color:${bgTextVars(bg.testimonial).heading};opacity:0.5;}` : ''}
+
+/* ── GALLERY ─────────────────────────────────────── */
+.gallery-section{background:${f.featureBg};}
+${bg.gallery ? `.gallery-section{${bgStyle(bg.gallery)}}
+.gallery-section .eyebrow{color:${bgTextVars(bg.gallery).heading};opacity:0.85;text-shadow:${bgTextVars(bg.gallery).shadow};}
+.gallery-section .section-title{color:${bgTextVars(bg.gallery).heading};text-shadow:${bgTextVars(bg.gallery).shadow};}
+.gallery-section .section-sub{color:${bgTextVars(bg.gallery).body};text-shadow:${bgTextVars(bg.gallery).shadow};}
+.gallery-cap{color:${bgTextVars(bg.gallery).body};text-shadow:${bgTextVars(bg.gallery).shadow};}` : ''}
+.gallery-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;max-width:1080px;margin:0 auto;}
+@media(max-width:860px){.gallery-grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:520px){.gallery-grid{grid-template-columns:1fr;}}
+.gallery-item{margin:0;position:relative;overflow:hidden;border-radius:${f.imgRadius};cursor:zoom-in;background:${f.cardBg};}
+.gallery-item img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;transition:transform 0.45s ease;}
+.gallery-item:hover img{transform:scale(1.05);}
+.gallery-cap{font-size:13px;color:${f.subTextColor};padding:10px 2px 0;line-height:1.4;}
+/* Lightbox: plain CSS :target so it works with JS disabled too */
+.lb{position:fixed;inset:0;background:rgba(8,8,10,0.94);display:none;align-items:center;justify-content:center;z-index:999;padding:24px;}
+.lb:target{display:flex;}
+.lb img{max-width:100%;max-height:86vh;object-fit:contain;border-radius:8px;}
+.lb-close{position:absolute;top:20px;right:26px;color:#fff;font-size:34px;text-decoration:none;line-height:1;opacity:0.75;}
+.lb-close:hover{opacity:1;}
+
+/* ── FAQ ─────────────────────────────────────────── */
+.faq-section{background:${f.aboutBg};}
+${bg.faq ? `.faq-section{${bgStyle(bg.faq)}}
+.faq-section .eyebrow{color:${bgTextVars(bg.faq).heading};opacity:0.85;text-shadow:${bgTextVars(bg.faq).shadow};}
+.faq-section .section-title{color:${bgTextVars(bg.faq).heading};text-shadow:${bgTextVars(bg.faq).shadow};}
+.faq-section .section-sub{color:${bgTextVars(bg.faq).body};text-shadow:${bgTextVars(bg.faq).shadow};}
+.faq-item{background:${bgTextVars(bg.faq).card};border:${bgTextVars(bg.faq).cardBorder};backdrop-filter:blur(6px);}
+.faq-q{color:${bgTextVars(bg.faq).heading};}
+.faq-a{color:${bgTextVars(bg.faq).body};}
+.faq-item summary::after{color:${bgTextVars(bg.faq).heading};}` : ''}
+.faq-list{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px;}
+.faq-item{background:${f.cardBg};border:${f.cardBorder};border-radius:${f.cardRadius};overflow:hidden;}
+.faq-item summary{list-style:none;cursor:pointer;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.faq-item summary::-webkit-details-marker{display:none;}
+.faq-item summary::after{content:'+';font-size:24px;line-height:1;flex-shrink:0;color:${f.accent};transition:transform 0.25s ease;}
+.faq-item[open] summary::after{content:'−';}
+.faq-q{font-family:${f.headFont};font-size:17px;font-weight:700;color:${f.headingColor};line-height:1.4;}
+.faq-a{font-size:15px;color:${f.subTextColor};line-height:1.65;padding:0 24px 20px;}
 footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;}
 .footer-name{font-size:18px;font-weight:800;color:${f.footerText};}
 .footer-copy{font-size:13px;color:${f.footerText};opacity:0.5;}
 .footer-links{display:flex;gap:24px;font-size:13px;color:${f.footerText};opacity:0.6;}
-@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}nav{padding:12px 16px;flex-wrap:nowrap;}.nav-links{display:none;}.nav-cta{padding:8px 16px;font-size:13px;white-space:nowrap;}footer{flex-direction:column;align-items:flex-start;gap:10px;}}
+@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}.faq-item summary{padding:16px 18px;}.faq-a{padding:0 18px 16px;}nav{padding:12px 16px;flex-wrap:nowrap;}.nav-links{display:none;}.nav-cta{padding:8px 16px;font-size:13px;white-space:nowrap;}footer{flex-direction:column;align-items:flex-start;gap:10px;}}
 @media(max-width:420px){nav{padding:10px 14px;}.nav-cta{padding:7px 12px;font-size:12px;}}
 </style></head><body>
 <nav>
@@ -1745,6 +1829,33 @@ ${show.testimonial ? `<section class="testimonial-section">
     </div>`).join('')}
   </div>
 </section>` : ''}
+${show.gallery ? `<section class="gallery-section" id="gallery">
+  <div style="text-align:center;max-width:600px;margin:0 auto 52px;">
+    <div class="eyebrow">${escHtml(s.galleryEyebrow || 'Gallery')}</div>
+    <div class="section-title">${escHtml(s.galleryTitle || 'A look at our work')}</div>
+    <div class="section-sub" style="margin-bottom:0;">${escHtml(s.gallerySub || 'A few recent favourites.')}</div>
+  </div>
+  <div class="gallery-grid">
+    ${gallery.map((g, i) => `<figure class="gallery-item">
+      <a href="#lb-${i}" aria-label="Enlarge image ${i + 1}"><img src="${escHtml(g.url)}" alt="${escHtml(g.caption || (name + ' gallery image ' + (i + 1)))}" loading="lazy"></a>
+      ${g.caption ? `<figcaption class="gallery-cap">${escHtml(g.caption)}</figcaption>` : ''}
+    </figure>`).join('')}
+  </div>
+</section>
+${gallery.map((g, i) => `<div class="lb" id="lb-${i}"><a class="lb-close" href="#gallery" aria-label="Close">&times;</a><img src="${escHtml(g.url)}" alt="${escHtml(g.caption || '')}"></div>`).join('')}` : ''}
+${show.faq ? `<section class="faq-section" id="faq">
+  <div style="text-align:center;max-width:600px;margin:0 auto 44px;">
+    <div class="eyebrow">${escHtml(s.faqEyebrow || 'FAQ')}</div>
+    <div class="section-title">${escHtml(s.faqTitle || 'Questions, answered')}</div>
+    <div class="section-sub" style="margin-bottom:0;">${escHtml(s.faqSub || 'The things people usually want to know before getting started.')}</div>
+  </div>
+  <div class="faq-list">
+    ${faqs.map((q, i) => `<details class="faq-item"${i === 0 ? ' open' : ''}>
+      <summary><span class="faq-q">${escHtml(q.q)}</span></summary>
+      <div class="faq-a">${escHtml(q.a)}</div>
+    </details>`).join('')}
+  </div>
+</section>` : ''}
 ${show.cta ? `<section class="cta-section" id="contact">
   <h2>${escHtml(s.ctaHeadline || 'Ready to get started?')}</h2>
   <p>${escHtml(s.ctaSubtext || ('Join the people already working with ' + name + '. Your journey begins with one simple step.'))}</p>
@@ -1762,6 +1873,68 @@ ${badge}
 // ── HELPERS ────────────────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── SECTION BACKGROUNDS (solid colour, or photo + colour overlay) ──────────────
+// A section can keep its theme's flat colour, or use an uploaded photo behind a
+// tinted overlay drawn from the owner's palette. Text colour is then derived
+// from the overlay so the copy stays readable instead of vanishing into the
+// photo — the owner picks a look, we guarantee it's legible.
+function hexToRgb(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || '').trim());
+  if (!m) return { r: 0, g: 0, b: 0 };
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+function rgba(hex, alpha) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
+}
+function bgConfig(s, key) {
+  const cfg = (s && s.sectionBg && s.sectionBg[key]) || {};
+  const url = String(cfg.url || '').trim();
+  if (cfg.mode !== 'image' || !url) return null;
+  // Strength is the overlay opacity. Clamp to a band that always leaves the
+  // photo visible but never lets contrast collapse entirely.
+  const strength = Math.max(20, Math.min(95, Number(cfg.strength ?? 65))) / 100;
+  return { url, color: cfg.overlay || '#000000', strength };
+}
+// Is the tinted result dark enough that text should go light?
+function bgIsDark(cfg) {
+  const { r, g, b } = hexToRgb(cfg.color);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  // Photo underneath is an unknown; assume mid-tone so partial overlays still
+  // resolve sensibly.
+  return (lum * cfg.strength + 0.45 * (1 - cfg.strength)) < 0.55;
+}
+// `scrim: 'left'` fades the tint across the section so a side-by-side hero keeps
+// its copy readable while the photo still breathes on the far edge.
+function bgStyle(cfg, scrim) {
+  const strong = rgba(cfg.color, cfg.strength);
+  const weak = rgba(cfg.color, Math.max(0.08, cfg.strength - 0.45));
+  const layer = scrim === 'left'
+    ? `linear-gradient(100deg,${strong} 0%,${strong} 46%,${weak} 100%)`
+    : `linear-gradient(${strong},${strong})`;
+  return `background-image:${layer},url('${encodeURI(cfg.url).replace(/'/g, "%27")}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
+}
+// Colour overrides applied to a section that's sitting on a photo.
+//
+// At low tint strength the photo dominates, and we can't know whether the part
+// of it behind any given line of text is light or dark — so picking a text
+// colour alone doesn't guarantee readability. Below a comfortable threshold we
+// also emit a soft shadow in the opposing direction, which keeps copy legible
+// over a busy or unpredictable image without muddying a strong tint.
+function bgTextVars(cfg) {
+  const dark = bgIsDark(cfg);
+  const needsShadow = cfg.strength < 0.55;
+  const shadow = !needsShadow ? 'none'
+    : dark ? '0 1px 3px rgba(0,0,0,0.55)' : '0 1px 3px rgba(255,255,255,0.6)';
+  return {
+    heading: dark ? '#FFFFFF' : '#141414',
+    body: dark ? 'rgba(255,255,255,0.90)' : 'rgba(20,20,20,0.82)',
+    card: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.82)',
+    cardBorder: dark ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(0,0,0,0.08)',
+    shadow,
+  };
 }
 
 // ── CTA BUTTONS ────────────────────────────────────────────────────────────────
@@ -1790,8 +1963,11 @@ function buttonHref(action) {
     return digits ? 'tel:' + digits : null;
   }
   if (type === 'url') {
-    // Anything not plainly http(s) gets prefixed, which also neutralises
-    // javascript: and data: payloads rather than emitting them as-is.
+    // Reject anything that already declares its own scheme other than
+    // http(s) — e.g. "javascript:alert(1)" or "data:text/html,...". Without
+    // this check those values fell through to the https:// prefix below and
+    // came out as "https://javascript:alert(1)": inert as a link, but not
+    // the sanitisation the code intended, and confusing either way.
     if (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^https?:\/\//i.test(raw)) return null;
     const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^\/+/, '');
     return /^https?:\/\/[^\s/$.?#][^\s]*$/i.test(url) ? url : null;
@@ -1856,15 +2032,24 @@ process.on('uncaughtException', (err) => {
 });
 
 // ── START ──────────────────────────────────────────────────────────────────────
-initDb()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`\n🚀 SiteSnap running at http://localhost:${PORT}`);
-      if (!process.env.STRIPE_SECRET_KEY) console.warn('   ⚠️  STRIPE_SECRET_KEY not set — payments will not work');
+// Exported so the test suite can boot the app in-process (via supertest)
+// without also binding a real port, and can call initDb() itself on a
+// throwaway database instead of racing this module's own startup.
+module.exports = { app, initDb, buttonHref };
+
+// Only auto-start when this file is run directly (`node server.js`) —
+// requiring it as a module (as the tests do) must not also open a port.
+if (require.main === module) {
+  initDb()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`\n🚀 SiteSnap running at http://localhost:${PORT}`);
+        if (!process.env.STRIPE_SECRET_KEY) console.warn('   ⚠️  STRIPE_SECRET_KEY not set — payments will not work');
+      });
+    })
+    .catch(e => {
+      // Starting without a working database would silently serve broken pages
+      console.error('Could not initialise the database:', e.message);
+      process.exit(1);
     });
-  })
-  .catch(e => {
-    // Starting without a working database would silently serve broken pages
-    console.error('Could not initialise the database:', e.message);
-    process.exit(1);
-  });
+}

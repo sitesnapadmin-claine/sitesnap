@@ -861,6 +861,56 @@
           </div>
         </div>
 
+        <!-- Gallery -->
+        <div class="copy-section-block">
+          <div class="copy-section-hdr">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">Photo gallery</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Show your work, space, or products</div>
+            </div>
+            <label class="tog">
+              <input type="checkbox" id="show-gallery" onchange="toggleFields('gallery-fields', this.checked)">
+              <span class="tog-tk"></span>
+            </label>
+          </div>
+          <div class="copy-section-fields" id="gallery-fields" style="display:none;">
+            <input type="text" class="copy-field" id="gallery-eyebrow" placeholder="Gallery" maxlength="30">
+            <input type="text" class="copy-field" id="gallery-title" placeholder="A look at our work" maxlength="60">
+            <input type="text" class="copy-field" id="gallery-sub" placeholder="Subheadline — e.g. A few recent favourites." maxlength="140" style="grid-column:1/-1;">
+            <div id="gallery-blocks" style="grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;"></div>
+            <button type="button" class="btn-back" id="btn-add-gallery" style="grid-column:1/-1;padding:10px;" onclick="addGalleryBlock()">+ Add a photo</button>
+            <div style="font-size:11px;color:var(--text-muted);line-height:1.5;grid-column:1/-1;">
+              Landscape photos look best. Around 9 keeps the page quick to load, but add
+              more if you need them. Captions are optional.
+            </div>
+          </div>
+        </div>
+
+        <!-- FAQs -->
+        <div class="copy-section-block">
+          <div class="copy-section-hdr">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">FAQs</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Answer the questions you get asked most</div>
+            </div>
+            <label class="tog">
+              <input type="checkbox" id="show-faq" onchange="toggleFields('faq-fields', this.checked)">
+              <span class="tog-tk"></span>
+            </label>
+          </div>
+          <div class="copy-section-fields" id="faq-fields" style="display:none;">
+            <input type="text" class="copy-field" id="faq-eyebrow" placeholder="FAQ" maxlength="30">
+            <input type="text" class="copy-field" id="faq-title" placeholder="Questions, answered" maxlength="60">
+            <input type="text" class="copy-field" id="faq-sub" placeholder="Subheadline — e.g. What people usually ask first." maxlength="140" style="grid-column:1/-1;">
+            <div id="faq-blocks" style="grid-column:1/-1;display:flex;flex-direction:column;gap:12px;"></div>
+            <button type="button" class="btn-back" id="btn-add-faq" style="grid-column:1/-1;padding:10px;" onclick="addFaqBlock()">+ Add a question</button>
+            <div style="font-size:11px;color:var(--text-muted);line-height:1.5;grid-column:1/-1;">
+              A question only appears once it has both a question and an answer. Visitors
+              tap to expand each one.
+            </div>
+          </div>
+        </div>
+
         <!-- CTA section -->
         <div class="copy-section-block">
           <div class="copy-section-hdr">
@@ -928,6 +978,18 @@
         </div>
       </div>
       <div class="error-msg" id="err-style" style="margin-top:10px;">Please choose a design style to continue.</div>
+
+      <!-- Per-section backdrops -->
+      <div class="field" style="margin-top:32px;">
+        <label>Section backdrops <span class="hint">— solid colour, or a photo behind a colour tint</span></label>
+        <div style="font-size:12px;color:var(--text-muted);margin:-4px 0 12px;line-height:1.5;">
+          Your theme colour is used by default. Switch a section to "Photo + colour tint"
+          to put one of your images behind it — we fade the tint over the text so it
+          stays readable.
+        </div>
+        <div id="section-bg-config"></div>
+      </div>
+
       <div class="nav-buttons">
         <button class="btn-back" onclick="goTo(3)">← Back</button>
         <button class="btn-next" onclick="goTo(5)">Build My Site 🚀</button>
@@ -1669,8 +1731,28 @@ const state = {
   fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call',
   showTrustBar:true, trust1:'', trust2:'', trust3:'', trust4:'',
   ctaHeadline:'', ctaSubtext:'',
+  // Gallery + FAQ: each has its own eyebrow/heading/subheading plus repeatable rows
+  galleryEyebrow:'', galleryTitle:'', gallerySub:'', gallery:[],
+  faqEyebrow:'', faqTitle:'', faqSub:'', faqs:[],
+  // Per-section backdrop: solid theme colour, or a photo behind a palette tint
+  sectionBg:{},
   designStyle:null
 };
+
+/* Which sections can carry a photo background. About/Services stay deliberately
+   clean — they're the text-heavy ones, and a busy backdrop there hurts more
+   than it helps. */
+const BG_SECTIONS = [
+  { key:'hero',        name:'Hero banner',      note:'Top of the page' },
+  { key:'testimonial', name:'Client reviews',   note:'Behind the review cards' },
+  { key:'gallery',     name:'Gallery',          note:'Behind your photo grid' },
+  { key:'faq',         name:'FAQs',             note:'Behind the questions' },
+  { key:'cta',         name:'Bottom banner',    note:'The closing call-to-action' },
+];
+
+const MAX_FAQS = 20;
+const MAX_GALLERY = 30;      // hard ceiling; we nudge toward ~9
+const GALLERY_SUGGESTED = 9;
 
 /* Feature availability comes from the server so we never advertise something
    a paying customer couldn't actually use. Defaults to off until confirmed. */
@@ -1924,6 +2006,9 @@ function goTo(n) {
   if (mktSection) mktSection.style.display = (n === 0) ? '' : 'none';
 
   if (n === 0) { document.getElementById('progress-wrap').style.display = 'none'; showStep(0); return; }
+  // Backdrop tint swatches are drawn from their palette, which is only known
+  // once step 2 is done — so refresh them on the way into step 4.
+  if (n === 4) renderSectionBgConfig();
   if (n <= 4) updateProgress(n);
   if (n === 5) { document.getElementById('progress-wrap').style.display = 'none'; showStep(5); runGenerating(); }
   else if (n === 6) { showStep(6); renderPreview(); }
@@ -1987,6 +2072,8 @@ function collectStep(step) {
       about: document.getElementById('show-about').checked,
       services: document.getElementById('show-services').checked,
       testimonial: document.getElementById('show-testimonial').checked,
+      gallery: document.getElementById('show-gallery').checked,
+      faq: document.getElementById('show-faq').checked,
       cta: document.getElementById('show-cta').checked,
     };
 
@@ -2002,6 +2089,16 @@ function collectStep(step) {
     }));
     state.testimonialEyebrow = document.getElementById('testimonial-eyebrow').value.trim();
     syncTestimonialInputsToState();
+
+    state.galleryEyebrow = document.getElementById('gallery-eyebrow').value.trim();
+    state.galleryTitle = document.getElementById('gallery-title').value.trim();
+    state.gallerySub = document.getElementById('gallery-sub').value.trim();
+    syncGalleryInputsToState();
+
+    state.faqEyebrow = document.getElementById('faq-eyebrow').value.trim();
+    state.faqTitle = document.getElementById('faq-title').value.trim();
+    state.faqSub = document.getElementById('faq-sub').value.trim();
+    syncFaqInputsToState();
 
     state.buttons = collectButtons();
   }
@@ -2052,10 +2149,268 @@ function removeTestimonialBlock(i) {
   renderTestimonialBlocks();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', renderTestimonialBlocks);
-} else {
+/* ═══════════════════════════════════════════════════
+   GALLERY
+   Repeatable image slots. Uses a shared upload helper
+   so gallery tiles and section backdrops don't each
+   reimplement the /api/upload dance.
+═══════════════════════════════════════════════════ */
+async function uploadPickedFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return null;
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/api/upload', { method:'POST', body: fd });
+  if (!res.ok) throw new Error('Upload failed');
+  const data = await res.json();
+  return data.url;
+}
+
+function renderGalleryBlocks() {
+  if (!state.gallery) state.gallery = [];
+  if (!state.gallery.length) state.gallery = [{ url:'', caption:'' }];
+  const wrap = document.getElementById('gallery-blocks');
+  if (!wrap) return;
+  wrap.innerHTML = state.gallery.map((g, i) => `
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div class="upload-zone ${g.url ? 'has-file' : ''}" id="gzone-${i}" style="min-height:96px;padding:8px;"
+           onclick="document.getElementById('gfile-${i}').click()">
+        <input type="file" id="gfile-${i}" accept="image/*" onchange="handleGalleryUpload(${i}, this)">
+        ${g.url ? `<button type="button" class="upload-remove" style="opacity:1;" onclick="clearGalleryImage(${i}, event)">×</button>` : ''}
+        <div id="gstate-${i}">
+          ${g.url
+            ? `<img class="upload-preview-img" src="${escHtml(g.url)}" alt="" style="max-height:56px;">`
+            : `<div class="upload-icon">📷</div><div class="upload-sub">Photo ${i + 1}</div>`}
+        </div>
+      </div>
+      <input type="text" class="copy-field" id="gcap-${i}" placeholder="Caption (optional)" maxlength="80"
+             value="${escHtml(g.caption)}" style="font-size:12px;padding:8px 10px;">
+      ${state.gallery.length > 1 ? `<button type="button" class="btn-back" style="padding:5px;font-size:11px;" onclick="removeGalleryBlock(${i})">Remove</button>` : ''}
+    </div>`).join('');
+  const addBtn = document.getElementById('btn-add-gallery');
+  if (addBtn) {
+    addBtn.style.display = state.gallery.length >= MAX_GALLERY ? 'none' : '';
+    const over = state.gallery.length >= GALLERY_SUGGESTED;
+    addBtn.textContent = over
+      ? `+ Add another photo (${state.gallery.length} — more will slow the page a little)`
+      : `+ Add a photo (${state.gallery.length}/${GALLERY_SUGGESTED} suggested)`;
+  }
+}
+
+function syncGalleryInputsToState() {
+  state.gallery = (state.gallery || []).map((g, i) => ({
+    url: g.url || '',
+    caption: document.getElementById('gcap-' + i)?.value.trim() ?? g.caption ?? '',
+  }));
+}
+
+async function handleGalleryUpload(i, input) {
+  const stateEl = document.getElementById('gstate-' + i);
+  const zone = document.getElementById('gzone-' + i);
+  zone.classList.add('uploading');
+  stateEl.innerHTML = `<div class="upload-spinner"></div>`;
+  try {
+    syncGalleryInputsToState();
+    const url = await uploadPickedFile(input);
+    if (url) state.gallery[i].url = url;
+    renderGalleryBlocks();
+  } catch (e) {
+    zone.classList.remove('uploading');
+    stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">Failed — try again</div>`;
+  }
+}
+
+function clearGalleryImage(i, event) {
+  event.stopPropagation();
+  syncGalleryInputsToState();
+  state.gallery[i].url = '';
+  renderGalleryBlocks();
+}
+
+function addGalleryBlock() {
+  syncGalleryInputsToState();
+  if (state.gallery.length >= MAX_GALLERY) return;
+  state.gallery.push({ url:'', caption:'' });
+  renderGalleryBlocks();
+}
+
+function removeGalleryBlock(i) {
+  syncGalleryInputsToState();
+  if (state.gallery.length <= 1) return;
+  state.gallery.splice(i, 1);
+  renderGalleryBlocks();
+}
+
+/* ═══════════════════════════════════════════════════
+   FAQs
+═══════════════════════════════════════════════════ */
+function renderFaqBlocks() {
+  if (!state.faqs) state.faqs = [];
+  if (!state.faqs.length) state.faqs = [{ q:'', a:'' }];
+  const wrap = document.getElementById('faq-blocks');
+  if (!wrap) return;
+  wrap.innerHTML = state.faqs.map((f, i) => `
+    <div style="display:flex;gap:8px;align-items:flex-start;">
+      <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+        <input type="text" class="copy-field" id="faq-${i}-q" maxlength="140"
+               placeholder="${i === 0 ? 'Question 1 — e.g. How long does it take?' : 'Question ' + (i + 1)}"
+               value="${escHtml(f.q)}">
+        <textarea class="copy-field" id="faq-${i}-a" maxlength="600" rows="2"
+                  placeholder="Your answer" style="resize:vertical;font-family:inherit;">${escHtml(f.a)}</textarea>
+      </div>
+      ${state.faqs.length > 1 ? `<button type="button" class="upload-remove" style="position:static;width:26px;height:26px;font-size:14px;flex-shrink:0;margin-top:4px;opacity:1;" onclick="removeFaqBlock(${i})">×</button>` : ''}
+    </div>`).join('');
+  const addBtn = document.getElementById('btn-add-faq');
+  if (addBtn) {
+    addBtn.style.display = state.faqs.length >= MAX_FAQS ? 'none' : '';
+    addBtn.textContent = `+ Add a question (${state.faqs.length}/${MAX_FAQS})`;
+  }
+}
+
+function syncFaqInputsToState() {
+  state.faqs = (state.faqs || []).map((f, i) => ({
+    q: document.getElementById('faq-' + i + '-q')?.value.trim() ?? f.q ?? '',
+    a: document.getElementById('faq-' + i + '-a')?.value.trim() ?? f.a ?? '',
+  }));
+}
+
+function addFaqBlock() {
+  syncFaqInputsToState();
+  if (state.faqs.length >= MAX_FAQS) return;
+  state.faqs.push({ q:'', a:'' });
+  renderFaqBlocks();
+}
+
+function removeFaqBlock(i) {
+  syncFaqInputsToState();
+  if (state.faqs.length <= 1) return;
+  state.faqs.splice(i, 1);
+  renderFaqBlocks();
+}
+
+/* ═══════════════════════════════════════════════════
+   SECTION BACKDROPS
+   Solid theme colour (default) or photo + palette tint.
+═══════════════════════════════════════════════════ */
+function bgCfg(key) {
+  if (!state.sectionBg) state.sectionBg = {};
+  if (!state.sectionBg[key]) state.sectionBg[key] = { mode:'solid', url:'', overlay:'', strength:65 };
+  return state.sectionBg[key];
+}
+
+// Offer the palette they already chose, plus neutral ink/paper.
+function paletteSwatches() {
+  return [
+    { label:'Primary', value: state.colorPrimary || '#6C47FF' },
+    { label:'Accent',  value: state.colorAccent  || '#FF6B6B' },
+    { label:'Dark',    value: '#111319' },
+    { label:'Light',   value: '#FFFFFF' },
+  ];
+}
+
+function renderSectionBgConfig() {
+  const wrap = document.getElementById('section-bg-config');
+  if (!wrap) return;
+  wrap.innerHTML = BG_SECTIONS.map(sec => {
+    const c = bgCfg(sec.key);
+    const isImg = c.mode === 'image';
+    const sw = paletteSwatches();
+    const activeOverlay = (c.overlay || sw[2].value).toUpperCase();
+    return `
+    <div class="copy-section-block" style="margin-bottom:10px;">
+      <div class="copy-section-hdr">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);">${sec.name}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${sec.note}</div>
+        </div>
+        <select class="copy-field" style="max-width:172px;" onchange="setBgMode('${sec.key}', this.value)">
+          <option value="solid" ${!isImg ? 'selected' : ''}>Solid colour</option>
+          <option value="image" ${isImg ? 'selected' : ''}>Photo + colour tint</option>
+        </select>
+      </div>
+      ${isImg ? `
+      <div class="copy-section-fields" style="grid-template-columns:1fr;">
+        <div style="display:flex;gap:10px;align-items:flex-start;">
+          <div class="upload-zone ${c.url ? 'has-file' : ''}" id="bgzone-${sec.key}" style="min-height:84px;width:120px;flex-shrink:0;padding:8px;"
+               onclick="document.getElementById('bgfile-${sec.key}').click()">
+            <input type="file" id="bgfile-${sec.key}" accept="image/*" onchange="handleBgUpload('${sec.key}', this)">
+            ${c.url ? `<button type="button" class="upload-remove" style="opacity:1;" onclick="clearBgImage('${sec.key}', event)">×</button>` : ''}
+            <div id="bgstate-${sec.key}">
+              ${c.url ? `<img class="upload-preview-img" src="${escHtml(c.url)}" alt="" style="max-height:52px;">`
+                      : `<div class="upload-icon">🏞️</div><div class="upload-sub">Background</div>`}
+            </div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;">Tint colour</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+              ${sw.map(s => `<button type="button" title="${s.label}"
+                  onclick="setBgOverlay('${sec.key}','${s.value}')"
+                  style="width:30px;height:30px;border-radius:8px;cursor:pointer;background:${s.value};
+                         border:2px solid ${activeOverlay === s.value.toUpperCase() ? 'var(--brand)' : 'var(--border)'};"></button>`).join('')}
+              <input type="color" value="${escHtml(activeOverlay)}" title="Custom"
+                     onchange="setBgOverlay('${sec.key}', this.value)"
+                     style="width:30px;height:30px;padding:0;border:1px solid var(--border);border-radius:8px;background:none;cursor:pointer;">
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;">
+              Tint strength <span style="color:var(--text-muted);font-weight:400;">${c.strength}%</span>
+            </div>
+            <input type="range" min="20" max="95" value="${c.strength}" style="width:100%;"
+                   oninput="setBgStrength('${sec.key}', this.value)">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4;">
+              Lower shows more photo. Higher makes text easier to read.
+            </div>
+          </div>
+        </div>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function setBgMode(key, mode) {
+  const c = bgCfg(key);
+  c.mode = mode;
+  if (mode === 'image' && !c.overlay) c.overlay = '#111319';
+  renderSectionBgConfig();
+}
+function setBgOverlay(key, hex) { bgCfg(key).overlay = hex; renderSectionBgConfig(); }
+function setBgStrength(key, val) {
+  bgCfg(key).strength = Number(val);
+  // Update just the readout so dragging the slider stays smooth
+  const c = bgCfg(key);
+  const label = document.querySelector(`#section-bg-config input[type="range"][oninput*="'${key}'"]`);
+  if (label && label.previousElementSibling) {
+    const span = label.previousElementSibling.querySelector('span');
+    if (span) span.textContent = c.strength + '%';
+  }
+}
+async function handleBgUpload(key, input) {
+  const stateEl = document.getElementById('bgstate-' + key);
+  stateEl.innerHTML = `<div class="upload-spinner"></div>`;
+  try {
+    const url = await uploadPickedFile(input);
+    if (url) bgCfg(key).url = url;
+    renderSectionBgConfig();
+  } catch (e) {
+    stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">Failed</div>`;
+  }
+}
+function clearBgImage(key, event) {
+  event.stopPropagation();
+  bgCfg(key).url = '';
+  renderSectionBgConfig();
+}
+
+function initRepeatables() {
   renderTestimonialBlocks();
+  renderGalleryBlocks();
+  renderFaqBlocks();
+  renderSectionBgConfig();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initRepeatables);
+} else {
+  initRepeatables();
 }
 
 /* ═══════════════════════════════════════════════════
@@ -2322,11 +2677,26 @@ function buildPreviewHtml(s) {
     .slice(0, 9)
     .map(t => ({ quote: ((t && t.quote) || '').trim(), author: ((t && t.author) || '').trim() || 'Client' }))
     .filter(t => t.quote);
+  const faqs = (Array.isArray(s.faqs) ? s.faqs : [])
+    .slice(0, 20)
+    .map(f => ({ q: ((f && f.q) || '').trim(), a: ((f && f.a) || '').trim() }))
+    .filter(f => f.q && f.a);
+  const gallery = (Array.isArray(s.gallery) ? s.gallery : [])
+    .slice(0, 30)
+    .map(g => ({ url: ((g && g.url) || '').trim(), caption: ((g && g.caption) || '').trim() }))
+    .filter(g => g.url);
   const show = {
     about: sec.about !== false,
     services: sec.services !== false,
     testimonial: sec.testimonial === true && testimonials.length > 0,
+    gallery: sec.gallery === true && gallery.length > 0,
+    faq: sec.faq === true && faqs.length > 0,
     cta: sec.cta !== false,
+  };
+  // Same backdrop maths as the server so the preview is honest
+  const pbg = {
+    hero: previewBg(s, 'hero'), testimonial: previewBg(s, 'testimonial'),
+    gallery: previewBg(s, 'gallery'), faq: previewBg(s, 'faq'), cta: previewBg(s, 'cta'),
   };
 
   const logoHtml = s.logoUrl
@@ -2386,8 +2756,37 @@ h1 em{color:${theme.accent};font-style:normal;}
 footer{background:${theme.footerBg};padding:32px 40px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
 .fn{font-size:17px;font-weight:800;color:${theme.footerText};}
 .fc2{font-size:12px;color:${theme.footerText};opacity:0.5;}
+.gg{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:1000px;margin:32px auto 0;}
+.gi{margin:0;border-radius:${theme.imgRadius};overflow:hidden;background:${theme.cardBg};}
+.gi img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;}
+.gc{font-size:12px;color:${theme.subTextColor};padding:8px 2px 0;}
+.fql{max-width:720px;margin:28px auto 0;display:flex;flex-direction:column;gap:10px;text-align:left;}
+.fqi{background:${theme.cardBg};border:${theme.cardBorder};border-radius:${theme.cardRadius};padding:16px 20px;}
+.fqq{font-family:${theme.headFont};font-size:16px;font-weight:700;color:${theme.headingColor};display:flex;justify-content:space-between;gap:12px;}
+.fqq span{color:${theme.accent};}
+.fqa{font-size:14px;color:${theme.subTextColor};line-height:1.6;margin-top:8px;}
+${pbg.hero ? `.hero{${pbg.hero.scrim}grid-template-columns:1fr;}.hero .hi{display:none;}
+.hero h1{color:${pbg.hero.heading};}.hero .hs{color:${pbg.hero.body};}` : ''}
+${pbg.cta ? `.cs{${pbg.cta.flat}}.cs h2{color:${pbg.cta.heading};}.cs p{color:${pbg.cta.body};}` : ''}
+${pbg.testimonial ? `.tsec{${pbg.testimonial.flat}}
+.tsec .ey{color:${pbg.testimonial.heading};}
+.tsec .fc{background:${pbg.testimonial.card};border:${pbg.testimonial.cardBorder};}` : ''}
+${pbg.gallery ? `.gsec{${pbg.gallery.flat}}
+.gsec .ey{color:${pbg.gallery.heading};}.gsec .st{color:${pbg.gallery.heading};}
+.gsec .sp{color:${pbg.gallery.body};}.gsec .gc{color:${pbg.gallery.body};}` : ''}
+${pbg.faq ? `.fsec{${pbg.faq.flat}}
+.fsec .ey{color:${pbg.faq.heading};}.fsec .st{color:${pbg.faq.heading};}
+.fsec .sp{color:${pbg.faq.body};}
+.fsec .fqi{background:${pbg.faq.card};border:${pbg.faq.cardBorder};}
+.fsec .fqq{color:${pbg.faq.heading};}.fsec .fqa{color:${pbg.faq.body};}` : ''}
 </style></head><body>
-<nav>${logoHtml}<div style="display:flex;gap:28px;font-size:14px;font-weight:500;color:${theme.navText};opacity:0.8;"><span>About</span><span>Services</span><span>Contact</span></div>${clientRenderCta(clientCtaFor(s,'nav',cta,'contact'), cta, 'nc')}</nav>
+<nav>${logoHtml}<div style="display:flex;gap:28px;font-size:14px;font-weight:500;color:${theme.navText};opacity:0.8;">${[
+  show.about ? '<span>About</span>' : '',
+  show.services ? '<span>Services</span>' : '',
+  show.gallery ? '<span>Gallery</span>' : '',
+  show.faq ? '<span>FAQ</span>' : '',
+  show.cta ? '<span>Contact</span>' : '',
+].join('')}</div>${clientRenderCta(clientCtaFor(s,'nav',cta,'contact'), cta, 'nc')}</nav>
 <div class="hero"><div>
   <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${theme.accent};margin-bottom:14px;">${s.industry || 'Business'}${loc}</div>
   <h1>${(s.heroHeadline || '').trim() || heroHeadline(name, s.industry)}</h1>
@@ -2408,7 +2807,7 @@ ${show.services ? `<div class="fg">
     ${feat.map(c => `<div class="fc"><div class="fi">${c.iconUrl ? `<img src="${c.iconUrl}" alt="" style="width:32px;height:32px;object-fit:contain;border-radius:8px;">` : c.icon}</div><div class="ft">${c.title}</div><div class="fx">${c.text}</div></div>`).join('')}
   </div>
 </div>` : ''}
-${show.testimonial ? `<div class="fg" style="text-align:center;">
+${show.testimonial ? `<div class="fg tsec" style="text-align:center;">
   <div class="ey">${s.testimonialEyebrow || 'What Clients Say'}</div>
   <div class="fgg" style="max-width:${testimonials.length === 1 ? '560px' : '1000px'};margin:20px auto 0;grid-template-columns:${testimonials.length === 1 ? '1fr' : 'repeat(auto-fit,minmax(220px,1fr))'};">
     ${testimonials.map(t => `<div class="fc" style="text-align:center;">
@@ -2418,10 +2817,61 @@ ${show.testimonial ? `<div class="fg" style="text-align:center;">
     </div>`).join('')}
   </div>
 </div>` : ''}
+${show.gallery ? `<div class="fg gsec">
+  <div style="text-align:center;">
+    <div class="ey">${s.galleryEyebrow || 'Gallery'}</div>
+    <div class="st" style="margin-bottom:8px;">${s.galleryTitle || 'A look at our work'}</div>
+    <div class="sp" style="margin:0 auto;max-width:480px;">${s.gallerySub || 'A few recent favourites.'}</div>
+  </div>
+  <div class="gg">
+    ${gallery.map(g => `<figure class="gi"><img src="${g.url}" alt="${g.caption || ''}">${g.caption ? `<figcaption class="gc">${g.caption}</figcaption>` : ''}</figure>`).join('')}
+  </div>
+</div>` : ''}
+${show.faq ? `<div class="fg fsec">
+  <div style="text-align:center;">
+    <div class="ey">${s.faqEyebrow || 'FAQ'}</div>
+    <div class="st" style="margin-bottom:8px;">${s.faqTitle || 'Questions, answered'}</div>
+    <div class="sp" style="margin:0 auto;max-width:480px;">${s.faqSub || 'The things people usually want to know before getting started.'}</div>
+  </div>
+  <div class="fql">
+    ${faqs.map((q, i) => `<div class="fqi">
+      <div class="fqq">${q.q}<span>${i === 0 ? '−' : '+'}</span></div>
+      ${i === 0 ? `<div class="fqa">${q.a}</div>` : ''}
+    </div>`).join('')}
+  </div>
+</div>` : ''}
 ${show.cta ? `<div class="cs"><h2>${ctaH}</h2><p>${ctaSub}</p>
 ${clientRenderCta(clientCtaFor(s,'final',cta+' →','contact'), cta+' →', 'bp', `background:${theme.ctaSectionBtn};color:${theme.ctaSectionBtnText};font-size:16px;padding:16px 40px;`)}</div>` : ''}
 <footer><div class="fn">${name}</div><div class="fc2">© ${new Date().getFullYear()} ${name}. All rights reserved.</div></footer>
 </body></html>`;
+}
+
+/* Section backdrops — mirrors bgConfig/bgStyle/bgTextVars in server.js.
+   Kept in sync by hand; the server is the source of truth for what ships. */
+function previewBg(s, key) {
+  const cfg = (s && s.sectionBg && s.sectionBg[key]) || {};
+  const url = String(cfg.url || '').trim();
+  if (cfg.mode !== 'image' || !url) return null;
+  const strength = Math.max(20, Math.min(95, Number(cfg.strength ?? 65))) / 100;
+  const color = cfg.overlay || '#000000';
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color.trim());
+  const r = m ? parseInt(m[1],16) : 0, g = m ? parseInt(m[2],16) : 0, b = m ? parseInt(m[3],16) : 0;
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  const dark = (lum * strength + 0.45 * (1 - strength)) < 0.55;
+  const strong = `rgba(${r},${g},${b},${strength})`;
+  const weak = `rgba(${r},${g},${b},${Math.max(0.08, strength - 0.45)})`;
+  const shadow = strength >= 0.55 ? 'none'
+    : (dark ? '0 1px 3px rgba(0,0,0,0.55)' : '0 1px 3px rgba(255,255,255,0.6)');
+  return {
+    dark,
+    shadow,
+    heading: dark ? '#FFFFFF' : '#141414',
+    body: dark ? 'rgba(255,255,255,0.90)' : 'rgba(20,20,20,0.82)',
+    card: dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.82)',
+    cardBorder: dark ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(0,0,0,0.08)',
+    flat: `background-image:linear-gradient(${strong},${strong}),url('${encodeURI(url).replace(/'/g,'%27')}');background-size:cover;background-position:center;`,
+    scrim: `background-image:linear-gradient(100deg,${strong} 0%,${strong} 46%,${weak} 100%),url('${encodeURI(url).replace(/'/g,'%27')}');background-size:cover;background-position:center;`,
+  };
 }
 
 function heroHeadline(name, industry) {
@@ -2684,7 +3134,20 @@ async function editSite(uuid) {
       differentiator: data.differentiator || '',
       ctaType: data.ctaType || 'Book a Call',
       designStyle: data.designStyle || null,
-      sections: Object.assign({about:true,services:true,testimonial:false,cta:true}, data.sections || {}),
+      sections: Object.assign({about:true,services:true,testimonial:false,gallery:false,faq:false,cta:true}, data.sections || {}),
+      galleryEyebrow: data.galleryEyebrow || '',
+      galleryTitle: data.galleryTitle || '',
+      gallerySub: data.gallerySub || '',
+      gallery: (Array.isArray(data.gallery) && data.gallery.length ? data.gallery : [{}])
+        .slice(0, MAX_GALLERY)
+        .map(g => ({ url: (g && g.url) || '', caption: (g && g.caption) || '' })),
+      faqEyebrow: data.faqEyebrow || '',
+      faqTitle: data.faqTitle || '',
+      faqSub: data.faqSub || '',
+      faqs: (Array.isArray(data.faqs) && data.faqs.length ? data.faqs : [{}])
+        .slice(0, MAX_FAQS)
+        .map(f => ({ q: (f && f.q) || '', a: (f && f.a) || '' })),
+      sectionBg: (data.sectionBg && typeof data.sectionBg === 'object') ? data.sectionBg : {},
       aboutEyebrow: data.aboutEyebrow || '',
       aboutTitle: data.aboutTitle || '',
       servicesEyebrow: data.servicesEyebrow || '',
@@ -2730,15 +3193,19 @@ async function editSite(uuid) {
     document.getElementById('differentiator').value = state.differentiator;
     document.getElementById('cta-type').value = state.ctaType;
 
-    // New section toggles + editable copy
+    // Section toggles + editable copy. `on` is the default when a saved site
+    // predates the section existing: the long-standing sections stay on, and
+    // anything opt-in (reviews, gallery, FAQs) stays off until asked for.
     const secs = state.sections || {};
-    [['show-about','about-fields','about'],
-     ['show-services','services-fields','services'],
-     ['show-testimonial','testimonial-fields','testimonial'],
-     ['show-cta','cta-fields','cta']].forEach(([box, fields, key]) => {
+    [['show-about','about-fields','about', true],
+     ['show-services','services-fields','services', true],
+     ['show-testimonial','testimonial-fields','testimonial', false],
+     ['show-gallery','gallery-fields','gallery', false],
+     ['show-faq','faq-fields','faq', false],
+     ['show-cta','cta-fields','cta', true]].forEach(([box, fields, key, on]) => {
       const el = document.getElementById(box);
       if (!el) return;
-      el.checked = secs[key] !== false && !(key === 'testimonial' && secs[key] !== true);
+      el.checked = typeof secs[key] === 'boolean' ? secs[key] : on;
       toggleFields(fields, el.checked);
     });
     document.getElementById('about-eyebrow').value = state.aboutEyebrow;
@@ -2753,6 +3220,18 @@ async function editSite(uuid) {
     });
     document.getElementById('testimonial-eyebrow').value = state.testimonialEyebrow;
     renderTestimonialBlocks();
+
+    document.getElementById('gallery-eyebrow').value = state.galleryEyebrow;
+    document.getElementById('gallery-title').value = state.galleryTitle;
+    document.getElementById('gallery-sub').value = state.gallerySub;
+    renderGalleryBlocks();
+
+    document.getElementById('faq-eyebrow').value = state.faqEyebrow;
+    document.getElementById('faq-title').value = state.faqTitle;
+    document.getElementById('faq-sub').value = state.faqSub;
+    renderFaqBlocks();
+
+    renderSectionBgConfig();
     fillButtonConfig(state.buttons);
 
     // Font style
