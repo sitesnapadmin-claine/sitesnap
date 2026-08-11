@@ -413,6 +413,58 @@
   .mkt-footer-links { font-size: 13px; color: var(--text-muted); }
   .mkt-footer-links a { color: var(--text-muted); text-decoration: underline; }
   .mkt-footer-copy { font-size: 12px; color: var(--text-muted); margin-top: 10px; opacity: 0.8; }
+
+  /* ── Browser/device mockup frame (macOS style) ─────────────────── */
+  .mock-win { background: #1E1E24; border-radius: 14px; box-shadow: 0 24px 60px -12px rgba(20,20,40,0.35), 0 0 0 1px rgba(0,0,0,0.06); overflow: hidden; width: 100%; }
+  .mock-win-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #2A2A32; }
+  .mock-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .mock-dot.r { background: #FF5F57; } .mock-dot.y { background: #FEBC2E; } .mock-dot.g { background: #28C840; }
+  .mock-win-url { flex: 1; margin-left: 6px; background: #1A1A20; border-radius: 6px; padding: 5px 12px; font-size: 11.5px; color: #9CA3AF; text-align: center; font-family: 'Inter',sans-serif; overflow: hidden; white-space: nowrap; }
+  .mock-win-body { background: #fff; max-height: 460px; overflow: hidden; position: relative; }
+  .mock-win-body::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 60px; background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.95)); pointer-events: none; }
+
+  /* Mini wizard form mockup (reuses real .field/.step-badge look, non-interactive) */
+  .mock-form { padding: 28px 30px 10px; pointer-events: none; }
+  .mock-form .step-badge { font-size: 11px; }
+  .mock-form h2 { font-size: 20px; margin: 10px 0 4px; }
+  .mock-form .sub { font-size: 13px; margin-bottom: 18px; }
+  .mock-form .field { margin-bottom: 16px; }
+  .mock-form input, .mock-form select { font-size: 13.5px; padding: 10px 12px; }
+  .mock-form .btn-next { font-size: 13px; padding: 10px 22px; }
+
+  /* Mini domain-connect mockup */
+  .mock-domain { padding: 26px 30px; pointer-events: none; }
+  .mock-domain .domain-section-title { font-weight: 700; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .mock-domain .domain-row { display: flex; gap: 8px; margin-bottom: 18px; }
+  .mock-domain .domain-text-input { flex: 1; border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; color: var(--text); background: #FAFAFC; }
+  .mock-domain .btn-domain-save { background: var(--brand); color: #fff; border: none; border-radius: 8px; padding: 10px 16px; font-weight: 700; font-size: 13px; white-space: nowrap; }
+  .mock-connected { display: flex; align-items: center; gap: 8px; background: #ECFDF5; border: 1px solid #A7F3D0; color: #047857; border-radius: 10px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 18px; }
+  .mock-dns-table { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 12px; }
+  .mock-dns-row { display: grid; grid-template-columns: 0.6fr 1fr 1.6fr; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border); font-family: 'SF Mono', Menlo, monospace; color: var(--text-muted); }
+  .mock-dns-row:last-child { border-bottom: none; }
+  .mock-dns-row.head { background: #F8F9FB; font-weight: 700; color: var(--text); font-family: inherit; }
+  .mock-ssl-note { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin-top: 14px; }
+
+  /* ── Template gallery ───────────────────────────────────────────── */
+  .tmpl-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; margin-top: 40px; }
+  @media (max-width: 900px) { .tmpl-gallery { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .tmpl-gallery { grid-template-columns: 1fr; } }
+  .tmpl-card { display: flex; flex-direction: column; }
+  .tmpl-win { border-radius: 12px; overflow: hidden; box-shadow: 0 14px 34px -10px rgba(20,20,40,0.25), 0 0 0 1px rgba(0,0,0,0.06); }
+  .tmpl-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #2A2A32; }
+  .tmpl-bar .mock-dot { width: 8px; height: 8px; }
+  .tmpl-hero { height: 190px; position: relative; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; background-size: cover; background-position: center; }
+  .tmpl-hero::before { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0.05)); }
+  .tmpl-hero-inner { position: relative; z-index: 1; }
+  .tmpl-hero-name { color: #fff; font-weight: 800; font-size: 15px; margin-bottom: 3px; }
+  .tmpl-hero-tag { color: rgba(255,255,255,0.85); font-size: 11.5px; }
+  .tmpl-body { padding: 14px 16px 16px; }
+  .tmpl-quote { font-size: 12px; font-style: italic; line-height: 1.5; margin-bottom: 8px; }
+  .tmpl-author { font-size: 11px; font-weight: 700; opacity: 0.7; }
+  .tmpl-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+  .tmpl-niche { font-size: 13px; font-weight: 800; }
+  .tmpl-style-tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 3px 9px; border-radius: 20px; background: var(--brand-light); color: var(--brand); }
+  .tmpl-caption { text-align: center; font-size: 12.5px; color: var(--text-muted); margin-top: 20px; }
 </style>
 </head>
 <body>
@@ -922,7 +974,38 @@
             <li>Editable headlines, About section, services, and testimonials</li>
           </ul>
         </div>
-        <div class="mkt-tab-visual">🎨</div>
+        <div class="mock-win">
+          <div class="mock-win-bar">
+            <div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div>
+            <div class="mock-win-url">site-snap.app/build</div>
+          </div>
+          <div class="mock-win-body">
+            <div class="mock-form">
+              <div class="step-badge">Step 1 of 5</div>
+              <h2>Tell us about your business</h2>
+              <p class="sub">This is what goes on your homepage. Be yourself — you can always edit later.</p>
+              <div class="field">
+                <label>Business / Brand Name <span style="color:var(--danger)">*</span></label>
+                <input type="text" value="Bloom &amp; Co. Florals" readonly>
+              </div>
+              <div class="field">
+                <label>One-line tagline <span class="hint">— What do you do in one sentence?</span></label>
+                <input type="text" value="Fresh arrangements for every occasion" readonly>
+              </div>
+              <div class="field-row">
+                <div class="field" style="margin-bottom:0">
+                  <label>Industry <span style="color:var(--danger)">*</span></label>
+                  <select><option>Retail / E-commerce</option></select>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label>City / Region <span class="hint">(optional)</span></label>
+                  <input type="text" value="Austin, TX" readonly>
+                </div>
+              </div>
+              <div class="nav-buttons"><div></div><button class="btn-next">Next →</button></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="mkt-tabpanel" id="mkt-panel-publish">
@@ -936,7 +1019,33 @@
             <li>Buttons that actually work — email, phone, and links</li>
           </ul>
         </div>
-        <div class="mkt-tab-visual">🚀</div>
+        <div class="mock-win">
+          <div class="mock-win-bar">
+            <div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div>
+            <div class="mock-win-url">site-snap.app/dashboard</div>
+          </div>
+          <div class="mock-win-body">
+            <div class="mock-domain">
+              <div class="mock-connected">✓ bloomandcoflorals.com is connected and live</div>
+              <div class="domain-section-title">sitesnap.app address (included)</div>
+              <div class="domain-row">
+                <input class="domain-text-input" value="bloomandco" readonly>
+                <button class="btn-domain-save">Save</button>
+              </div>
+              <div class="domain-section-title">Custom domain (Pro)</div>
+              <div class="domain-row">
+                <input class="domain-text-input" value="bloomandcoflorals.com" readonly>
+                <button class="btn-domain-save">Connect</button>
+              </div>
+              <div class="mock-dns-table">
+                <div class="mock-dns-row head"><span>Type</span><span>Name</span><span>Value</span></div>
+                <div class="mock-dns-row"><span>A</span><span>@</span><span>76.76.21.21</span></div>
+                <div class="mock-dns-row"><span>CNAME</span><span>www</span><span>sitesnap.app</span></div>
+              </div>
+              <div class="mock-ssl-note">🔒 HTTPS certificate issued automatically — nothing to install.</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="mkt-tabpanel" id="mkt-panel-grow">
@@ -952,6 +1061,123 @@
         </div>
         <div class="mkt-tab-visual">📈</div>
       </div>
+    </div>
+  </section>
+
+  <!-- TEMPLATE GALLERY -->
+  <section class="mkt-section" id="landing-templates">
+    <div class="mkt-wrap mkt-center">
+      <div class="mkt-eyebrow">Designer-made themes</div>
+      <h2 class="mkt-h2">Not another generic template</h2>
+      <p class="mkt-sub mkt-center">Each of our 6 themes is a full design system — colors, fonts, and layout all change together, so your site actually looks built for your business.</p>
+    </div>
+    <div class="mkt-wrap">
+      <div class="tmpl-gallery">
+
+        <div class="tmpl-card">
+          <div class="tmpl-win" style="background:#FFFEF9;">
+            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
+            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=500&q=60');">
+              <div class="tmpl-hero-inner">
+                <div class="tmpl-hero-name">Bloom &amp; Petal Co.</div>
+                <div class="tmpl-hero-tag">Fresh florals, delivered daily</div>
+              </div>
+            </div>
+            <div class="tmpl-body" style="background:#FFFEF9;color:#3D2B1F;">
+              <div class="tmpl-quote">"They made our wedding arrangements absolutely unforgettable."</div>
+              <div class="tmpl-author">— Jamie R.</div>
+            </div>
+          </div>
+          <div class="tmpl-meta"><span class="tmpl-niche">Light &amp; Airy</span><span class="tmpl-style-tag">Florist / Photography</span></div>
+        </div>
+
+        <div class="tmpl-card">
+          <div class="tmpl-win" style="background:#0D0D0D;">
+            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
+            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=500&q=60');">
+              <div class="tmpl-hero-inner">
+                <div class="tmpl-hero-name">Nexora Labs</div>
+                <div class="tmpl-hero-tag">Built for the future, today</div>
+              </div>
+            </div>
+            <div class="tmpl-body" style="background:#111;color:#fff;">
+              <div class="tmpl-quote">"Nexora cut our onboarding time by 70% in the first month."</div>
+              <div class="tmpl-author" style="opacity:0.6;">— Priya S.</div>
+            </div>
+          </div>
+          <div class="tmpl-meta"><span class="tmpl-niche">Bold &amp; Modern</span><span class="tmpl-style-tag">Tech / SaaS</span></div>
+        </div>
+
+        <div class="tmpl-card">
+          <div class="tmpl-win" style="background:#FFFDF8;">
+            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
+            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=500&q=60');">
+              <div class="tmpl-hero-inner">
+                <div class="tmpl-hero-name">Root &amp; Bean Coffee</div>
+                <div class="tmpl-hero-tag">Small-batch, sustainably sourced</div>
+              </div>
+            </div>
+            <div class="tmpl-body" style="background:#FFFDF8;color:#2C1A0E;">
+              <div class="tmpl-quote">"Best cortado in town, and the story behind every bag is beautiful."</div>
+              <div class="tmpl-author">— Marcus T.</div>
+            </div>
+          </div>
+          <div class="tmpl-meta"><span class="tmpl-niche">Earthy</span><span class="tmpl-style-tag">Café / Wellness</span></div>
+        </div>
+
+        <div class="tmpl-card">
+          <div class="tmpl-win" style="background:#0A0A0A;">
+            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
+            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=500&q=60');">
+              <div class="tmpl-hero-inner">
+                <div class="tmpl-hero-name">Aurelia Fine Jewelry</div>
+                <div class="tmpl-hero-tag">Heirlooms, made for now</div>
+              </div>
+            </div>
+            <div class="tmpl-body" style="background:#111;color:#F5F0E8;">
+              <div class="tmpl-quote">"The custom engagement ring exceeded every expectation."</div>
+              <div class="tmpl-author" style="opacity:0.6;">— Elena V.</div>
+            </div>
+          </div>
+          <div class="tmpl-meta"><span class="tmpl-niche">Luxe</span><span class="tmpl-style-tag">Jewelry / Boutique</span></div>
+        </div>
+
+        <div class="tmpl-card">
+          <div class="tmpl-win" style="background:#FFFFFF;">
+            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
+            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1488477181946-6428a0291777?auto=format&fit=crop&w=500&q=60');">
+              <div class="tmpl-hero-inner">
+                <div class="tmpl-hero-name">Sweet Scoop Creamery</div>
+                <div class="tmpl-hero-tag">Handmade happiness, one scoop at a time</div>
+              </div>
+            </div>
+            <div class="tmpl-body" style="background:#FFFFFF;color:#1A0A00;">
+              <div class="tmpl-quote">"My kid's birthday party was a total hit thanks to their catering cart!"</div>
+              <div class="tmpl-author">— Dana K.</div>
+            </div>
+          </div>
+          <div class="tmpl-meta"><span class="tmpl-niche">Playful</span><span class="tmpl-style-tag">Bakery / Events</span></div>
+        </div>
+
+        <div class="tmpl-card">
+          <div class="tmpl-win" style="background:#FFFFFF;">
+            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
+            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=500&q=60');">
+              <div class="tmpl-hero-inner">
+                <div class="tmpl-hero-name">Sterling &amp; Cole Law</div>
+                <div class="tmpl-hero-tag">Clear counsel, strong advocacy</div>
+              </div>
+            </div>
+            <div class="tmpl-body" style="background:#FFFFFF;color:#0F172A;">
+              <div class="tmpl-quote">"They walked us through everything and got us a fair settlement fast."</div>
+              <div class="tmpl-author">— Robert H.</div>
+            </div>
+          </div>
+          <div class="tmpl-meta"><span class="tmpl-niche">Professional</span><span class="tmpl-style-tag">Law / Consulting</span></div>
+        </div>
+
+      </div>
+      <p class="tmpl-caption">Example sites shown with sample photos and content for illustration — every theme is fully editable, including your own photos, colors, and copy.</p>
     </div>
   </section>
 
