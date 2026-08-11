@@ -445,26 +445,62 @@
   .mock-dns-row.head { background: #F8F9FB; font-weight: 700; color: var(--text); font-family: inherit; }
   .mock-ssl-note { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); margin-top: 14px; }
 
-  /* ── Template gallery ───────────────────────────────────────────── */
-  .tmpl-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; margin-top: 40px; }
-  @media (max-width: 900px) { .tmpl-gallery { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 600px) { .tmpl-gallery { grid-template-columns: 1fr; } }
+  /* ── Template gallery: multi-device composite mockups ─────────────── */
+  .tmpl-gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 50px 40px; margin-top: 44px; }
+  @media (max-width: 860px) { .tmpl-gallery { grid-template-columns: 1fr; } }
   .tmpl-card { display: flex; flex-direction: column; }
-  .tmpl-win { border-radius: 12px; overflow: hidden; box-shadow: 0 14px 34px -10px rgba(20,20,40,0.25), 0 0 0 1px rgba(0,0,0,0.06); }
-  .tmpl-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #2A2A32; }
-  .tmpl-bar .mock-dot { width: 8px; height: 8px; }
-  .tmpl-hero { height: 190px; position: relative; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; background-size: cover; background-position: center; }
-  .tmpl-hero::before { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0.05)); }
-  .tmpl-hero-inner { position: relative; z-index: 1; }
-  .tmpl-hero-name { color: #fff; font-weight: 800; font-size: 15px; margin-bottom: 3px; }
-  .tmpl-hero-tag { color: rgba(255,255,255,0.85); font-size: 11.5px; }
-  .tmpl-body { padding: 14px 16px 16px; }
-  .tmpl-quote { font-size: 12px; font-style: italic; line-height: 1.5; margin-bottom: 8px; }
-  .tmpl-author { font-size: 11px; font-weight: 700; opacity: 0.7; }
-  .tmpl-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+  .tmpl-scene { position: relative; height: 340px; margin-bottom: 6px; }
+
+  /* iMac */
+  .tmpl-imac { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 84%; z-index: 1; }
+  .tmpl-imac-screen { border: 9px solid #18181b; border-bottom: none; border-radius: 13px 13px 0 0; overflow: hidden; height: 190px; box-shadow: 0 22px 40px -12px rgba(15,15,30,0.4); }
+  .tmpl-imac-chin { height: 20px; background: linear-gradient(#e9e9ec,#c6c6cc); border-radius: 0 0 7px 7px; }
+  .tmpl-imac-neck { width: 64px; height: 30px; background: linear-gradient(#d8d8dc,#b6b6bc); margin: 0 auto; clip-path: polygon(22% 0,78% 0,100% 100%,0% 100%); }
+  .tmpl-imac-base { width: 150px; height: 8px; background: linear-gradient(#d8d8dc,#aeaeb4); border-radius: 5px; margin: 0 auto; box-shadow: 0 3px 6px rgba(0,0,0,0.25); }
+
+  /* Laptop */
+  .tmpl-laptop { position: absolute; bottom: 0; left: -2%; width: 46%; z-index: 2; }
+  .tmpl-laptop-screen { border: 7px solid #18181b; border-bottom: none; border-radius: 9px 9px 0 0; overflow: hidden; height: 148px; box-shadow: 0 18px 32px -10px rgba(15,15,30,0.4); }
+  .tmpl-laptop-base { height: 9px; background: linear-gradient(#e6e6e9,#b9b9bf); border-radius: 0 0 9px 9px; position: relative; }
+  .tmpl-laptop-base::before { content: ''; position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: 16%; height: 3px; background: #9a9aa0; border-radius: 0 0 3px 3px; }
+
+  /* iPad */
+  .tmpl-ipad { position: absolute; bottom: 6px; right: -2%; width: 33%; z-index: 2; }
+  .tmpl-ipad-screen { border: 7px solid #18181b; border-radius: 15px; overflow: hidden; height: 190px; box-shadow: 0 18px 32px -10px rgba(15,15,30,0.4); position: relative; }
+  .tmpl-ipad-screen::before { content: ''; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,0.35); z-index: 5; }
+
+  /* Mini nav (iMac top) */
+  .tmpl-mini-nav { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 7.5px; font-weight: 700; }
+  .tmpl-mini-nav .links { display: flex; gap: 7px; font-weight: 500; opacity: 0.75; }
+  .tmpl-mini-nav .cta { padding: 3px 7px; border-radius: 4px; font-size: 6.5px; font-weight: 700; }
+
+  /* Mini hero (iMac body) */
+  .tmpl-mini-hero { display: flex; align-items: center; gap: 8px; padding: 8px 10px; height: calc(100% - 26px); }
+  .tmpl-mini-hero-copy { flex: 1.1; min-width: 0; }
+  .tmpl-mini-eyebrow { font-size: 6px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 3px; opacity: 0.8; }
+  .tmpl-mini-h1 { font-size: 13.5px; font-weight: 800; line-height: 1.15; margin-bottom: 4px; }
+  .tmpl-mini-hero-sub { font-size: 6.8px; opacity: 0.75; margin-bottom: 6px; line-height: 1.3; }
+  .tmpl-mini-btn { display: inline-block; font-size: 6.5px; font-weight: 700; padding: 4px 8px; border-radius: 4px; }
+  .tmpl-mini-hero-img { flex: 0.9; height: 88%; border-radius: 6px; background-size: cover; background-position: center; }
+
+  /* Mini about (laptop body) */
+  .tmpl-mini-about { display: flex; align-items: center; gap: 8px; padding: 11px; height: 100%; }
+  .tmpl-mini-about-img { flex: 0 0 42%; height: 100px; border-radius: 6px; background-size: cover; background-position: center; }
+  .tmpl-mini-about-copy h4 { font-size: 9.5px; font-weight: 800; margin-bottom: 4px; line-height: 1.2; }
+  .tmpl-mini-about-copy p { font-size: 6.2px; line-height: 1.4; opacity: 0.75; margin-bottom: 5px; }
+
+  /* Mini features (ipad body) */
+  .tmpl-mini-feat-wrap { padding: 12px 9px; text-align: center; height: 100%; }
+  .tmpl-mini-feat-title { font-size: 9px; font-weight: 800; margin-bottom: 6px; }
+  .tmpl-mini-feat-grid { display: flex; flex-direction: column; gap: 5px; }
+  .tmpl-mini-feat { border-radius: 6px; padding: 6px 7px; text-align: left; font-size: 6.3px; line-height: 1.3; }
+  .tmpl-mini-feat b { display: block; font-size: 6.8px; margin-bottom: 1px; }
+  .tmpl-mini-feat span { font-size: 8.5px; }
+
+  .tmpl-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
   .tmpl-niche { font-size: 13px; font-weight: 800; }
   .tmpl-style-tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 3px 9px; border-radius: 20px; background: var(--brand-light); color: var(--brand); }
-  .tmpl-caption { text-align: center; font-size: 12.5px; color: var(--text-muted); margin-top: 20px; }
+  .tmpl-caption { text-align: center; font-size: 12.5px; color: var(--text-muted); margin-top: 30px; }
 </style>
 </head>
 <body>
@@ -1074,103 +1110,307 @@
     <div class="mkt-wrap">
       <div class="tmpl-gallery">
 
+        <!-- 1. LIGHT & AIRY — Bloom & Petal Co. -->
         <div class="tmpl-card">
-          <div class="tmpl-win" style="background:#FFFEF9;">
-            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
-            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=500&q=60');">
-              <div class="tmpl-hero-inner">
-                <div class="tmpl-hero-name">Bloom &amp; Petal Co.</div>
-                <div class="tmpl-hero-tag">Fresh florals, delivered daily</div>
+          <div class="tmpl-scene">
+            <div class="tmpl-imac">
+              <div class="tmpl-imac-screen" style="background:#FAF7F2;color:#3D2B1F;">
+                <div class="tmpl-mini-nav" style="background:#FFFEF9;">
+                  <span>Bloom &amp; Petal</span>
+                  <span class="links"><span>About</span><span>Services</span><span>Contact</span></span>
+                  <span class="cta" style="background:#3D2B1F;color:#FFFEF9;">Book Now</span>
+                </div>
+                <div class="tmpl-mini-hero">
+                  <div class="tmpl-mini-hero-copy">
+                    <div class="tmpl-mini-eyebrow" style="color:#C4966A;">Floral Design · Weddings</div>
+                    <div class="tmpl-mini-h1">Fresh flowers,<br>felt deeply.</div>
+                    <div class="tmpl-mini-hero-sub">Same-day arrangements for weddings and everyday moments.</div>
+                    <span class="tmpl-mini-btn" style="background:#3D2B1F;color:#FFFEF9;">Book Now →</span>
+                  </div>
+                  <div class="tmpl-mini-hero-img" style="background-image:url('https://images.unsplash.com/photo-1490750967868-88aa4486c946?auto=format&fit=crop&w=400&q=60');"></div>
+                </div>
               </div>
+              <div class="tmpl-imac-chin"></div><div class="tmpl-imac-neck"></div><div class="tmpl-imac-base"></div>
             </div>
-            <div class="tmpl-body" style="background:#FFFEF9;color:#3D2B1F;">
-              <div class="tmpl-quote">"They made our wedding arrangements absolutely unforgettable."</div>
-              <div class="tmpl-author">— Jamie R.</div>
+            <div class="tmpl-laptop">
+              <div class="tmpl-laptop-screen" style="background:#FFFEF9;color:#3D2B1F;">
+                <div class="tmpl-mini-about">
+                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1523293182086-7651a899d37f?auto=format&fit=crop&w=300&q=60');"></div>
+                  <div class="tmpl-mini-about-copy">
+                    <h4>We exist for people who want flowers that feel personal…</h4>
+                    <p>Every arrangement is cut and designed the morning it ships — never from a cooler.</p>
+                    <span class="tmpl-mini-btn" style="background:#3D2B1F;color:#FFFEF9;">Book Now →</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tmpl-laptop-base"></div>
+            </div>
+            <div class="tmpl-ipad">
+              <div class="tmpl-ipad-screen" style="background:#FAF7F2;color:#3D2B1F;">
+                <div class="tmpl-mini-feat-wrap">
+                  <div class="tmpl-mini-feat-title">What makes Bloom &amp; Petal different</div>
+                  <div class="tmpl-mini-feat-grid">
+                    <div class="tmpl-mini-feat" style="background:#FFFEF9;"><span>🌸</span><b>Cut fresh daily</b>Nothing sits in a cooler.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFEF9;"><span>🤝</span><b>Personal consult</b>We design around your story.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFEF9;"><span>⭐</span><b>Same-day delivery</b>Order by noon, delivered by evening.</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="tmpl-meta"><span class="tmpl-niche">Light &amp; Airy</span><span class="tmpl-style-tag">Florist / Photography</span></div>
         </div>
 
+        <!-- 2. BOLD & MODERN — Nexora Labs -->
         <div class="tmpl-card">
-          <div class="tmpl-win" style="background:#0D0D0D;">
-            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
-            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=500&q=60');">
-              <div class="tmpl-hero-inner">
-                <div class="tmpl-hero-name">Nexora Labs</div>
-                <div class="tmpl-hero-tag">Built for the future, today</div>
+          <div class="tmpl-scene">
+            <div class="tmpl-imac">
+              <div class="tmpl-imac-screen" style="background:#0D0D0D;color:#FFFFFF;">
+                <div class="tmpl-mini-nav" style="background:#0D0D0D;border-bottom:1px solid #1F1F1F;">
+                  <span>Nexora</span>
+                  <span class="links"><span>Product</span><span>Pricing</span><span>Docs</span></span>
+                  <span class="cta" style="background:#FFFFFF;color:#0D0D0D;">Get Started</span>
+                </div>
+                <div class="tmpl-mini-hero">
+                  <div class="tmpl-mini-hero-copy">
+                    <div class="tmpl-mini-eyebrow" style="color:#FF6B6B;">Technology · SaaS</div>
+                    <div class="tmpl-mini-h1">Built for the<br>future, today.</div>
+                    <div class="tmpl-mini-hero-sub" style="opacity:0.65;">The platform teams switch to when they outgrow spreadsheets.</div>
+                    <span class="tmpl-mini-btn" style="background:#FFFFFF;color:#0D0D0D;">Get Started →</span>
+                  </div>
+                  <div class="tmpl-mini-hero-img" style="background-image:url('https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=400&q=60');"></div>
+                </div>
               </div>
+              <div class="tmpl-imac-chin"></div><div class="tmpl-imac-neck"></div><div class="tmpl-imac-base"></div>
             </div>
-            <div class="tmpl-body" style="background:#111;color:#fff;">
-              <div class="tmpl-quote">"Nexora cut our onboarding time by 70% in the first month."</div>
-              <div class="tmpl-author" style="opacity:0.6;">— Priya S.</div>
+            <div class="tmpl-laptop">
+              <div class="tmpl-laptop-screen" style="background:#111;color:#fff;">
+                <div class="tmpl-mini-about">
+                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=300&q=60');"></div>
+                  <div class="tmpl-mini-about-copy">
+                    <h4>We exist for teams who've outgrown manual workflows…</h4>
+                    <p style="opacity:0.65;">We've shipped, broken, and rebuilt this ourselves — so you don't have to.</p>
+                    <span class="tmpl-mini-btn" style="background:#FFFFFF;color:#0D0D0D;">Get Started →</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tmpl-laptop-base"></div>
+            </div>
+            <div class="tmpl-ipad">
+              <div class="tmpl-ipad-screen" style="background:#0D0D0D;color:#fff;">
+                <div class="tmpl-mini-feat-wrap">
+                  <div class="tmpl-mini-feat-title">What makes Nexora different</div>
+                  <div class="tmpl-mini-feat-grid">
+                    <div class="tmpl-mini-feat" style="background:#1A1A1A;"><span>⚡</span><b>Fast setup</b><span style="opacity:0.65;font-size:6.3px;">Live in an afternoon, not a quarter.</span></div>
+                    <div class="tmpl-mini-feat" style="background:#1A1A1A;"><span>🛡️</span><b>Built to scale</b><span style="opacity:0.65;font-size:6.3px;">10 to 10,000 users, no rewrite.</span></div>
+                    <div class="tmpl-mini-feat" style="background:#1A1A1A;"><span>🎯</span><b>Real support</b><span style="opacity:0.65;font-size:6.3px;">Actual engineers, not a ticket queue.</span></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="tmpl-meta"><span class="tmpl-niche">Bold &amp; Modern</span><span class="tmpl-style-tag">Tech / SaaS</span></div>
         </div>
 
+        <!-- 3. EARTHY — Root & Bean Coffee -->
         <div class="tmpl-card">
-          <div class="tmpl-win" style="background:#FFFDF8;">
-            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
-            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=500&q=60');">
-              <div class="tmpl-hero-inner">
-                <div class="tmpl-hero-name">Root &amp; Bean Coffee</div>
-                <div class="tmpl-hero-tag">Small-batch, sustainably sourced</div>
+          <div class="tmpl-scene">
+            <div class="tmpl-imac">
+              <div class="tmpl-imac-screen" style="background:#F4F1EC;color:#2C1A0E;">
+                <div class="tmpl-mini-nav" style="background:#EDE9E0;">
+                  <span>Root &amp; Bean</span>
+                  <span class="links"><span>About</span><span>Menu</span><span>Visit</span></span>
+                  <span class="cta" style="background:#5A7A3A;color:#FFFDF8;">Order Ahead</span>
+                </div>
+                <div class="tmpl-mini-hero">
+                  <div class="tmpl-mini-hero-copy">
+                    <div class="tmpl-mini-eyebrow" style="color:#6B5544;">Coffee · Roastery</div>
+                    <div class="tmpl-mini-h1">Small batch,<br>grown with care.</div>
+                    <div class="tmpl-mini-hero-sub">Direct-trade beans, roasted weekly in-house.</div>
+                    <span class="tmpl-mini-btn" style="background:#5A7A3A;color:#FFFDF8;">Order Ahead →</span>
+                  </div>
+                  <div class="tmpl-mini-hero-img" style="background-image:url('https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=400&q=60');"></div>
+                </div>
               </div>
+              <div class="tmpl-imac-chin"></div><div class="tmpl-imac-neck"></div><div class="tmpl-imac-base"></div>
             </div>
-            <div class="tmpl-body" style="background:#FFFDF8;color:#2C1A0E;">
-              <div class="tmpl-quote">"Best cortado in town, and the story behind every bag is beautiful."</div>
-              <div class="tmpl-author">— Marcus T.</div>
+            <div class="tmpl-laptop">
+              <div class="tmpl-laptop-screen" style="background:#FFFDF8;color:#2C1A0E;">
+                <div class="tmpl-mini-about">
+                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=300&q=60');"></div>
+                  <div class="tmpl-mini-about-copy">
+                    <h4>We exist for people who want to know where their coffee comes from…</h4>
+                    <p>Every bag lists the farm, the harvest, and the roast date — no mystery blends.</p>
+                    <span class="tmpl-mini-btn" style="background:#5A7A3A;color:#FFFDF8;">Order Ahead →</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tmpl-laptop-base"></div>
+            </div>
+            <div class="tmpl-ipad">
+              <div class="tmpl-ipad-screen" style="background:#F4F1EC;color:#2C1A0E;">
+                <div class="tmpl-mini-feat-wrap">
+                  <div class="tmpl-mini-feat-title">What makes Root &amp; Bean different</div>
+                  <div class="tmpl-mini-feat-grid">
+                    <div class="tmpl-mini-feat" style="background:#FFFDF8;"><span>🌱</span><b>Direct trade</b>We pay farmers fairly, always.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFDF8;"><span>🤝</span><b>Roasted weekly</b>Never sits on a shelf for months.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFDF8;"><span>🍀</span><b>Zero-waste packaging</b>Compostable bags, every batch.</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="tmpl-meta"><span class="tmpl-niche">Earthy</span><span class="tmpl-style-tag">Café / Wellness</span></div>
         </div>
 
+        <!-- 4. LUXE — Aurelia Fine Jewelry -->
         <div class="tmpl-card">
-          <div class="tmpl-win" style="background:#0A0A0A;">
-            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
-            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=500&q=60');">
-              <div class="tmpl-hero-inner">
-                <div class="tmpl-hero-name">Aurelia Fine Jewelry</div>
-                <div class="tmpl-hero-tag">Heirlooms, made for now</div>
+          <div class="tmpl-scene">
+            <div class="tmpl-imac">
+              <div class="tmpl-imac-screen" style="background:#0A0A0A;color:#F5F0E8;">
+                <div class="tmpl-mini-nav" style="background:#0A0A0A;border-bottom:1px solid #C9A84C33;">
+                  <span>Aurelia</span>
+                  <span class="links"><span>Collections</span><span>Custom</span><span>Visit</span></span>
+                  <span class="cta" style="background:#C9A84C;color:#0A0A0A;">Book Consult</span>
+                </div>
+                <div class="tmpl-mini-hero">
+                  <div class="tmpl-mini-hero-copy">
+                    <div class="tmpl-mini-eyebrow" style="color:#C9A84C;">Fine Jewelry · Custom</div>
+                    <div class="tmpl-mini-h1">Heirlooms,<br>made for now.</div>
+                    <div class="tmpl-mini-hero-sub" style="opacity:0.65;">Custom engagement rings, handcrafted in-house.</div>
+                    <span class="tmpl-mini-btn" style="background:#C9A84C;color:#0A0A0A;">Book Consult →</span>
+                  </div>
+                  <div class="tmpl-mini-hero-img" style="background-image:url('https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=400&q=60');"></div>
+                </div>
               </div>
+              <div class="tmpl-imac-chin"></div><div class="tmpl-imac-neck"></div><div class="tmpl-imac-base"></div>
             </div>
-            <div class="tmpl-body" style="background:#111;color:#F5F0E8;">
-              <div class="tmpl-quote">"The custom engagement ring exceeded every expectation."</div>
-              <div class="tmpl-author" style="opacity:0.6;">— Elena V.</div>
+            <div class="tmpl-laptop">
+              <div class="tmpl-laptop-screen" style="background:#111;color:#F5F0E8;">
+                <div class="tmpl-mini-about">
+                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&w=300&q=60');"></div>
+                  <div class="tmpl-mini-about-copy">
+                    <h4>We exist for people who want a ring with a story…</h4>
+                    <p style="opacity:0.65;">Every piece is sketched, cast, and finished by hand in our studio.</p>
+                    <span class="tmpl-mini-btn" style="background:#C9A84C;color:#0A0A0A;">Book Consult →</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tmpl-laptop-base"></div>
+            </div>
+            <div class="tmpl-ipad">
+              <div class="tmpl-ipad-screen" style="background:#0A0A0A;color:#F5F0E8;">
+                <div class="tmpl-mini-feat-wrap">
+                  <div class="tmpl-mini-feat-title">What makes Aurelia different</div>
+                  <div class="tmpl-mini-feat-grid">
+                    <div class="tmpl-mini-feat" style="background:#141414;"><span>💎</span><b>Ethically sourced</b><span style="opacity:0.65;font-size:6.3px;">Every stone, traceable.</span></div>
+                    <div class="tmpl-mini-feat" style="background:#141414;"><span>🤍</span><b>Handcrafted in-house</b><span style="opacity:0.65;font-size:6.3px;">Not outsourced, ever.</span></div>
+                    <div class="tmpl-mini-feat" style="background:#141414;"><span>✦</span><b>Lifetime care</b><span style="opacity:0.65;font-size:6.3px;">Free cleaning and resizing.</span></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="tmpl-meta"><span class="tmpl-niche">Luxe</span><span class="tmpl-style-tag">Jewelry / Boutique</span></div>
         </div>
 
+        <!-- 5. PLAYFUL — Sweet Scoop Creamery -->
         <div class="tmpl-card">
-          <div class="tmpl-win" style="background:#FFFFFF;">
-            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
-            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1488477181946-6428a0291777?auto=format&fit=crop&w=500&q=60');">
-              <div class="tmpl-hero-inner">
-                <div class="tmpl-hero-name">Sweet Scoop Creamery</div>
-                <div class="tmpl-hero-tag">Handmade happiness, one scoop at a time</div>
+          <div class="tmpl-scene">
+            <div class="tmpl-imac">
+              <div class="tmpl-imac-screen" style="background:#FFF8F0;color:#1A0A00;">
+                <div class="tmpl-mini-nav" style="background:#FFFFFF;">
+                  <span>Sweet Scoop</span>
+                  <span class="links"><span>Flavors</span><span>Catering</span><span>Visit</span></span>
+                  <span class="cta" style="background:#FF6B6B;color:#FFFFFF;">Order Online</span>
+                </div>
+                <div class="tmpl-mini-hero">
+                  <div class="tmpl-mini-hero-copy">
+                    <div class="tmpl-mini-eyebrow" style="color:#7A4A00;">Ice Cream · Catering</div>
+                    <div class="tmpl-mini-h1">Handmade happiness,<br>one scoop at a time.</div>
+                    <div class="tmpl-mini-hero-sub">Small-batch ice cream &amp; dessert catering for parties.</div>
+                    <span class="tmpl-mini-btn" style="background:#FF6B6B;color:#FFFFFF;">Order Online →</span>
+                  </div>
+                  <div class="tmpl-mini-hero-img" style="background-image:url('https://images.unsplash.com/photo-1488477181946-6428a0291777?auto=format&fit=crop&w=400&q=60');"></div>
+                </div>
               </div>
+              <div class="tmpl-imac-chin"></div><div class="tmpl-imac-neck"></div><div class="tmpl-imac-base"></div>
             </div>
-            <div class="tmpl-body" style="background:#FFFFFF;color:#1A0A00;">
-              <div class="tmpl-quote">"My kid's birthday party was a total hit thanks to their catering cart!"</div>
-              <div class="tmpl-author">— Dana K.</div>
+            <div class="tmpl-laptop">
+              <div class="tmpl-laptop-screen" style="background:#FFFFFF;color:#1A0A00;">
+                <div class="tmpl-mini-about">
+                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1486427944299-d1955d23e34d?auto=format&fit=crop&w=300&q=60');"></div>
+                  <div class="tmpl-mini-about-copy">
+                    <h4>We exist for people throwing a party that needs a little magic…</h4>
+                    <p>We show up with the cart, the flavors, and the mess-free setup.</p>
+                    <span class="tmpl-mini-btn" style="background:#FF6B6B;color:#FFFFFF;">Order Online →</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tmpl-laptop-base"></div>
+            </div>
+            <div class="tmpl-ipad">
+              <div class="tmpl-ipad-screen" style="background:#FFF8F0;color:#1A0A00;">
+                <div class="tmpl-mini-feat-wrap">
+                  <div class="tmpl-mini-feat-title">What makes Sweet Scoop different</div>
+                  <div class="tmpl-mini-feat-grid">
+                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🎈</span><b>Full-service catering</b>We bring the cart, you bring the guests.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🌈</span><b>Made fresh weekly</b>Never frozen for months.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🏆</span><b>Loved by kids &amp; adults</b>200+ parties and counting.</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="tmpl-meta"><span class="tmpl-niche">Playful</span><span class="tmpl-style-tag">Bakery / Events</span></div>
         </div>
 
+        <!-- 6. PROFESSIONAL — Sterling & Cole Law -->
         <div class="tmpl-card">
-          <div class="tmpl-win" style="background:#FFFFFF;">
-            <div class="tmpl-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div></div>
-            <div class="tmpl-hero" style="background-image:url('https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=500&q=60');">
-              <div class="tmpl-hero-inner">
-                <div class="tmpl-hero-name">Sterling &amp; Cole Law</div>
-                <div class="tmpl-hero-tag">Clear counsel, strong advocacy</div>
+          <div class="tmpl-scene">
+            <div class="tmpl-imac">
+              <div class="tmpl-imac-screen" style="background:#F0F4FA;color:#0F172A;">
+                <div class="tmpl-mini-nav" style="background:#1E3A5F;color:#FFFFFF;">
+                  <span>Sterling &amp; Cole</span>
+                  <span class="links" style="opacity:0.85;"><span>Practice Areas</span><span>About</span><span>Contact</span></span>
+                  <span class="cta" style="background:#FFFFFF;color:#1E3A5F;">Free Consult</span>
+                </div>
+                <div class="tmpl-mini-hero">
+                  <div class="tmpl-mini-hero-copy">
+                    <div class="tmpl-mini-eyebrow" style="color:#475569;">Law · Consulting</div>
+                    <div class="tmpl-mini-h1">Clear counsel,<br>strong advocacy.</div>
+                    <div class="tmpl-mini-hero-sub">Representation you can actually understand.</div>
+                    <span class="tmpl-mini-btn" style="background:#0F172A;color:#FFFFFF;">Free Consult →</span>
+                  </div>
+                  <div class="tmpl-mini-hero-img" style="background-image:url('https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=400&q=60');"></div>
+                </div>
               </div>
+              <div class="tmpl-imac-chin"></div><div class="tmpl-imac-neck"></div><div class="tmpl-imac-base"></div>
             </div>
-            <div class="tmpl-body" style="background:#FFFFFF;color:#0F172A;">
-              <div class="tmpl-quote">"They walked us through everything and got us a fair settlement fast."</div>
-              <div class="tmpl-author">— Robert H.</div>
+            <div class="tmpl-laptop">
+              <div class="tmpl-laptop-screen" style="background:#FFFFFF;color:#0F172A;">
+                <div class="tmpl-mini-about">
+                  <div class="tmpl-mini-about-img" style="background-image:url('https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=300&q=60');"></div>
+                  <div class="tmpl-mini-about-copy">
+                    <h4>We exist for people who feel lost in the legal system…</h4>
+                    <p>We explain every step in plain English — and we're honest when a case isn't worth pursuing.</p>
+                    <span class="tmpl-mini-btn" style="background:#0F172A;color:#FFFFFF;">Free Consult →</span>
+                  </div>
+                </div>
+              </div>
+              <div class="tmpl-laptop-base"></div>
+            </div>
+            <div class="tmpl-ipad">
+              <div class="tmpl-ipad-screen" style="background:#F0F4FA;color:#0F172A;">
+                <div class="tmpl-mini-feat-wrap">
+                  <div class="tmpl-mini-feat-title">What makes Sterling &amp; Cole different</div>
+                  <div class="tmpl-mini-feat-grid">
+                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>📊</span><b>No win, no fee</b>You don't pay unless we win.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>🔒</span><b>Direct attorney access</b>Not a call center.</div>
+                    <div class="tmpl-mini-feat" style="background:#FFFFFF;"><span>✅</span><b>Decades of trial experience</b>Prepared like it's going to court.</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="tmpl-meta"><span class="tmpl-niche">Professional</span><span class="tmpl-style-tag">Law / Consulting</span></div>
