@@ -1871,6 +1871,7 @@ fetch('/api/config')
 let authToken = localStorage.getItem('ss_token') || null;
 let authEmail = localStorage.getItem('ss_email') || null;
 let authPlan = localStorage.getItem('ss_plan') || 'free';
+let authName = localStorage.getItem('ss_name') || null; // first name, if they've set one — see saveAccountProfile()
 let authMode = 'register'; // or 'login'
 
 // Mirrors SITE_LIMITS in server.js. Kept in sync manually — the server is
@@ -1952,12 +1953,21 @@ async function refreshPlan() {
       localStorage.setItem('ss_plan', authPlan);
       renderAuthArea();
     }
+    // Catches a name set from another device/session — same idea as the plan
+    // check above. saveAccountProfile() already updates authName instantly
+    // for edits made right here, so this is just for staying in sync elsewhere.
+    const freshName = data.name || '';
+    if (freshName !== (authName || '')) {
+      authName = freshName;
+      localStorage.setItem('ss_name', authName);
+      refreshDashGreeting();
+    }
   } catch(_) {}
 }
 
 function logout() {
-  authToken = null; authEmail = null; authPlan = 'free'; currentSiteUuid = null;
-  localStorage.removeItem('ss_token'); localStorage.removeItem('ss_email'); localStorage.removeItem('ss_plan');
+  authToken = null; authEmail = null; authPlan = 'free'; authName = null; currentSiteUuid = null;
+  localStorage.removeItem('ss_token'); localStorage.removeItem('ss_email'); localStorage.removeItem('ss_plan'); localStorage.removeItem('ss_name');
   renderAuthArea();
   showBuilderView();
   startOver();
@@ -2102,14 +2112,24 @@ function showDashboardView() {
   renderDashboard();
 }
 
-async function renderDashboard() {
+// Prefer the name they set on their account; fall back to the part of their
+// email before the @ (today's behaviour) so the greeting is never blank.
+function dashDisplayName() {
+  const trimmed = (authName || '').trim();
+  if (trimmed) return trimmed;
+  return (authEmail || '').split('@')[0] || 'there';
+}
+
+function refreshDashGreeting() {
   const greetEl = document.getElementById('dash-greeting');
-  if (greetEl) {
-    const hour = new Date().getHours();
-    const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
-    const name = (authEmail || '').split('@')[0] || 'there';
-    greetEl.textContent = `Good ${part}, ${escHtml(name)} 👋`;
-  }
+  if (!greetEl) return;
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  greetEl.textContent = `Good ${part}, ${escHtml(dashDisplayName())} 👋`;
+}
+
+async function renderDashboard() {
+  refreshDashGreeting();
 
   const wrap = document.getElementById('dash-sites-wrap');
   const tipEl = document.getElementById('dash-tip');
@@ -3948,6 +3968,13 @@ async function openAccountModal() {
     if (!res.ok) throw new Error(me.error || 'Could not load account');
     document.getElementById('acct-name').value = me.name || '';
     document.getElementById('acct-email').value = me.email || authEmail || '';
+    // Already fetching /api/me for this modal — piggyback to keep the cached
+    // name in sync in case it was set from another device/session.
+    if ((me.name || '') !== (authName || '')) {
+      authName = me.name || '';
+      localStorage.setItem('ss_name', authName);
+      refreshDashGreeting();
+    }
 
     const planNames = { free: 'Free plan', starter: 'Starter plan', pro: 'Pro plan' };
     document.getElementById('acct-plan-label').textContent = planNames[me.plan] || 'Free plan';
@@ -3986,6 +4013,12 @@ async function saveAccountProfile() {
     if (data.token) { authToken = data.token; localStorage.setItem('ss_token', authToken); }
     authEmail = data.email;
     localStorage.setItem('ss_email', authEmail);
+    // Keeps the dashboard greeting in step with whatever name they just saved —
+    // without this it would keep showing the old name (or email) until the
+    // next refreshPlan() poll caught up.
+    authName = data.name || '';
+    localStorage.setItem('ss_name', authName);
+    refreshDashGreeting();
     renderAuthArea();
     out.textContent = '✓ Profile updated.';
     out.style.color = 'var(--success)';
