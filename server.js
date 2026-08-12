@@ -2035,7 +2035,12 @@ process.on('uncaughtException', (err) => {
 // Exported so the test suite can boot the app in-process (via supertest)
 // without also binding a real port, and can call initDb() itself on a
 // throwaway database instead of racing this module's own startup.
-module.exports = { app, initDb, buttonHref };
+// buildWebsite and the background helpers are exported for the test suite —
+// they're the logic behind what actually ships to a customer's visitors.
+module.exports = {
+  app, initDb, buttonHref,
+  buildWebsite, bgConfig, bgIsDark, bgTextVars, bgStyle, hexToRgb, rgba,
+};
 
 // Only auto-start when this file is run directly (`node server.js`) —
 // requiring it as a module (as the tests do) must not also open a port.
