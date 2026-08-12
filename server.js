@@ -1202,8 +1202,13 @@ app.get('/reset-password', (req, res) => {
 h1{font-size:22px;font-weight:800;color:#1A1A2E;margin-bottom:8px}
 p.sub{font-size:14px;color:#6B7280;line-height:1.6;margin-bottom:24px}
 label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px}
+.pw-wrap{position:relative}
 input{width:100%;padding:13px 14px;border:1.5px solid #E5E7EB;border-radius:10px;font-size:15px;font-family:inherit}
+.pw-wrap input{padding-right:44px}
 input:focus{outline:none;border-color:#6C47FF}
+.pw-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:#9CA3AF;border-radius:8px;padding:0}
+.pw-toggle:hover{color:#374151;background:rgba(0,0,0,.04)}
+.pw-toggle svg{width:18px;height:18px}
 button{width:100%;margin-top:16px;padding:14px;background:#6C47FF;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
 button:disabled{opacity:.6;cursor:default}
 .msg{margin-top:14px;font-size:13px;line-height:1.5}
@@ -1213,12 +1218,25 @@ a{color:#6C47FF;font-weight:600;text-decoration:none}</style></head><body>
   <h1>Choose a new password</h1>
   <p class="sub">Pick something you'll remember. This link works once.</p>
   <label for="pw">New password</label>
-  <input type="password" id="pw" placeholder="At least 6 characters" autocomplete="new-password">
+  <div class="pw-wrap">
+    <input type="password" id="pw" placeholder="At least 6 characters" autocomplete="new-password">
+    <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePw()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+  </div>
   <button id="go" onclick="submitReset()">Save new password</button>
   <div class="msg" id="msg"></div>
 </div>
 <script>
 const TOKEN = ${JSON.stringify(token)};
+const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.68 18.68 0 0 1 4.22-5.94"></path><path d="M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a18.68 18.68 0 0 1-2.16 3.19"></path><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+function togglePw(){
+  const input = document.getElementById('pw');
+  const btn = document.querySelector('.pw-toggle');
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  btn.innerHTML = isHidden ? EYE_OFF : EYE;
+  btn.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
+}
 async function submitReset(){
   const pw = document.getElementById('pw').value;
   const msg = document.getElementById('msg');
