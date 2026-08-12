@@ -1927,11 +1927,24 @@ function planLabel(plan) {
   return '<span class="plan-badge plan-free">Free</span>';
 }
 
+// Whether the dashboard <div> is the thing currently on screen — used to
+// decide if the nav needs a way back to it (see renderAuthArea()).
+function isDashboardVisible() {
+  const dash = document.getElementById('dashboard-view');
+  return !!dash && dash.style.display !== 'none';
+}
+
 function renderAuthArea() {
   const area = document.getElementById('auth-area');
   if (authToken && authEmail) {
+    // Showing "My Sites" while already on the dashboard is a button that
+    // reloads the page you're looking at — dead weight. It only earns its
+    // keep as a way back while you're mid-wizard, so it's hidden on the
+    // dashboard and relabelled to make clear it's an exit, not a sites list.
+    const backBtn = isDashboardVisible() ? '' :
+      `<button class="my-sites-btn" onclick="showDashboardView()">← Dashboard</button>`;
     area.innerHTML = `
-      <button class="my-sites-btn" onclick="showDashboardView()">📋 My Sites</button>
+      ${backBtn}
       <div class="user-pill">👤 ${escHtml(authEmail)}${planLabel(authPlan)}</div>
       ${authPlan !== 'free' ? `<button class="btn-login-top" onclick="openBillingPortal()" style="font-size:12px;">Billing</button>` : `<button class="btn-signup-top" style="font-size:13px;padding:7px 16px;" onclick="openUpgradeModal()">⬆ Upgrade</button>`}
       <button class="btn-login-top" onclick="openAccountModal()" style="font-size:12px;">⚙ My Account</button>
@@ -2101,6 +2114,7 @@ function showBuilderView() {
   document.querySelector('.app').style.display = '';
   const dash = document.getElementById('dashboard-view');
   if (dash) dash.style.display = 'none';
+  if (authToken) renderAuthArea(); // nav needs the "← Dashboard" button back
 }
 
 function showDashboardView() {
@@ -2109,6 +2123,7 @@ function showDashboardView() {
   if (mkt) mkt.style.display = 'none';
   const dash = document.getElementById('dashboard-view');
   if (dash) dash.style.display = '';
+  renderAuthArea(); // nav needs to drop the now-redundant "back" button
   renderDashboard();
 }
 
