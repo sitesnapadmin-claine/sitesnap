@@ -266,6 +266,66 @@
   .plan-starter { background:#FEF9C3; color:#854D0E; }
   .plan-pro { background:#EDE9FE; color:#5B21B6; }
 
+  /* ── DASHBOARD (shown instead of the landing page once logged in) ── */
+  .dash-view { animation: fadeSlide 0.4s ease; }
+  .dash-hero { position:relative; overflow:hidden; padding:48px 24px 40px; background:var(--white); border-bottom:1px solid var(--border); }
+  .dash-blob { position:absolute; border-radius:50%; filter:blur(50px); opacity:0.22; z-index:0; pointer-events:none; }
+  .dash-blob1 { width:280px; height:280px; background:var(--brand); top:-140px; right:-40px; }
+  .dash-blob2 { width:180px; height:180px; background:#FF6B6B; top:20px; right:240px; opacity:0.16; }
+  .dash-hero-inner { position:relative; z-index:1; max-width:1100px; margin:0 auto; }
+  .dash-hero-inner h1 { font-size:26px; font-weight:800; margin:0 0 6px; letter-spacing:-0.5px; color:var(--text); }
+  .dash-hero-inner p.dash-sub { margin:0; color:var(--text-muted); font-size:14.5px; }
+
+  .dash-plan-card { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px 20px; margin-top:22px; }
+  .dash-plan-left { display:flex; align-items:center; gap:14px; }
+  .dash-plan-icon { width:38px; height:38px; border-radius:10px; background:var(--brand-light); display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0; }
+  .dash-plan-label { font-size:12.5px; color:var(--text-muted); margin-bottom:5px; }
+  .dash-plan-value { font-size:14.5px; font-weight:700; color:var(--text); }
+  .dash-progress-track { width:130px; height:6px; background:var(--border); border-radius:6px; overflow:hidden; margin-top:6px; }
+  .dash-progress-fill { height:100%; background:var(--brand); border-radius:6px; transition:width 0.3s ease; }
+  .dash-btn-primary { background:var(--brand); color:white; border:none; padding:10px 18px; border-radius:10px; font-size:13.5px; font-weight:700; cursor:pointer; transition:all 0.2s; font-family:inherit; }
+  .dash-btn-primary:hover { background:var(--brand-dark); }
+
+  .dash-body { max-width:1100px; margin:0 auto; padding:32px 24px 64px; }
+  .dash-section-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
+  .dash-section-hdr h2 { font-size:18px; font-weight:800; margin:0; color:var(--text); }
+  .dash-section-hdr .dash-count { color:var(--text-muted); font-weight:600; font-size:13.5px; margin-left:6px; }
+
+  .dash-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:18px; }
+  .dash-card { background:var(--white); border:1px solid var(--border); border-radius:16px; overflow:hidden; transition:transform 0.15s, box-shadow 0.15s; }
+  .dash-card:hover { transform:translateY(-3px); box-shadow:var(--shadow); }
+  .dash-card-strip { height:58px; position:relative; display:flex; align-items:flex-end; padding:8px 14px; }
+  .dash-card-strip .dash-emoji { font-size:24px; }
+  .dash-card-delete { position:absolute; top:6px; right:6px; width:26px; height:26px; border-radius:8px; border:none; background:rgba(255,255,255,0.9); font-size:12.5px; cursor:pointer; opacity:0; transition:opacity 0.15s; display:flex; align-items:center; justify-content:center; }
+  .dash-card:hover .dash-card-delete { opacity:1; }
+  .dash-card-body { padding:14px 16px 16px; }
+  .dash-card-body .dash-biz-name { font-weight:700; font-size:15px; margin:0 0 3px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dash-card-body .dash-biz-meta { font-size:12px; color:var(--text-muted); margin:0 0 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dash-card-actions { display:flex; gap:8px; }
+  .dash-card-actions button { flex:1; padding:8px 0; font-size:12.5px; border-radius:8px; border:none; cursor:pointer; font-weight:700; font-family:inherit; transition:all 0.2s; }
+  .dash-btn-edit { background:var(--brand-light); color:var(--brand-dark); }
+  .dash-btn-edit:hover { background:#E0D8FF; }
+  .dash-btn-view { background:transparent; color:var(--text-muted); border:1.5px solid var(--border); }
+  .dash-btn-view:hover { border-color:var(--brand); color:var(--brand); }
+  .dash-updated-tag { font-size:11px; color:#9CA3AF; margin-top:10px; display:flex; align-items:center; gap:5px; }
+  .dash-live-dot { width:6px; height:6px; border-radius:50%; background:var(--success); display:inline-block; flex-shrink:0; }
+
+  .dash-new-card { border:2px dashed #D8CCFF; border-radius:16px; background:var(--brand-light); display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:28px 16px; cursor:pointer; transition:all 0.15s; min-height:176px; }
+  .dash-new-card:hover { background:#E4DBFF; transform:translateY(-3px); }
+  .dash-new-card .dash-plus { width:42px; height:42px; border-radius:50%; background:var(--brand); color:white; font-size:22px; display:flex; align-items:center; justify-content:center; margin-bottom:10px; }
+  .dash-new-card .dash-new-title { font-weight:700; font-size:14px; color:var(--text); margin-bottom:3px; }
+  .dash-new-card .dash-new-sub { font-size:12px; color:var(--text-muted); max-width:160px; }
+
+  .dash-tip { margin-top:32px; background:#FFFBEB; border:1px solid #FDE68A; border-radius:14px; padding:16px 20px; display:flex; gap:12px; align-items:flex-start; }
+  .dash-tip .dash-tip-emoji { font-size:18px; }
+  .dash-tip .dash-tip-text { font-size:13px; color:#78350F; line-height:1.55; }
+  .dash-tip .dash-tip-text b { color:#451A03; }
+
+  .dash-empty { text-align:center; padding:64px 24px; background:var(--white); border:1.5px dashed var(--border); border-radius:20px; }
+  .dash-empty .dash-empty-emoji { font-size:40px; margin-bottom:12px; }
+  .dash-empty h3 { font-size:19px; font-weight:800; margin:0 0 8px; color:var(--text); }
+  .dash-empty p { font-size:14px; color:var(--text-muted); margin:0 auto 20px; max-width:360px; }
+
   /* ── UPGRADE MODAL ────────────────────────────── */
   .upgrade-modal { max-width:560px; }
   .upgrade-modal h3 { font-size:24px; margin-bottom:6px; }
@@ -1585,6 +1645,40 @@
 
 </div>
 
+<!-- DASHBOARD (shown instead of the landing page once someone is logged in) -->
+<div id="dashboard-view" class="dash-view" style="display:none;">
+  <div class="dash-hero">
+    <div class="dash-blob dash-blob1"></div>
+    <div class="dash-blob dash-blob2"></div>
+    <div class="dash-hero-inner">
+      <h1 id="dash-greeting">Welcome back 👋</h1>
+      <p class="dash-sub">Here's what's live and what's next.</p>
+      <div class="dash-plan-card">
+        <div class="dash-plan-left">
+          <div class="dash-plan-icon">📦</div>
+          <div>
+            <div class="dash-plan-label" id="dash-plan-label">Free plan</div>
+            <div class="dash-plan-value" id="dash-plan-value">0 sites</div>
+            <div class="dash-progress-track"><div class="dash-progress-fill" id="dash-progress-fill" style="width:0%;"></div></div>
+          </div>
+        </div>
+        <button class="dash-btn-primary" id="dash-upgrade-btn" onclick="openUpgradeModal()" style="display:none;">⬆ Upgrade to Pro</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="dash-body">
+    <div id="dash-sites-wrap">
+      <!-- Populated by renderDashboard() -->
+    </div>
+
+    <div class="dash-tip" id="dash-tip" style="display:none;">
+      <div class="dash-tip-emoji">💡</div>
+      <div class="dash-tip-text"><b>Tip:</b> Sites on the Free plan show a "Built with SiteSnap" badge. Upgrade to Starter or Pro to remove it and connect your own domain.</div>
+    </div>
+  </div>
+</div>
+
 <!-- UPGRADE MODAL -->
 <div class="modal-overlay" id="upgrade-modal">
   <div class="modal upgrade-modal">
@@ -1796,6 +1890,18 @@ document.addEventListener('DOMContentLoaded', () => {
   renderAuthArea();
   // Refresh plan from server if logged in (handles return from Stripe)
   if (authToken) refreshPlan();
+
+  // Logged-in visitors land on their dashboard, not the marketing page —
+  // "?new=1" is buildNewSite()'s full-reload escape hatch for starting a
+  // fresh site with guaranteed-clean state, so that one load skips the
+  // dashboard and drops straight into the wizard instead.
+  const wantsNew = new URLSearchParams(location.search).get('new') === '1';
+  if (wantsNew) {
+    history.replaceState({}, '', location.pathname);
+    if (authToken) startWizard();
+  } else if (authToken) {
+    showDashboardView();
+  }
 });
 
 // Stripe checkout completes on a different origin, then bounces back through
@@ -1824,7 +1930,7 @@ function renderAuthArea() {
   const area = document.getElementById('auth-area');
   if (authToken && authEmail) {
     area.innerHTML = `
-      <button class="my-sites-btn" onclick="openDrawer()">📋 My Sites</button>
+      <button class="my-sites-btn" onclick="showDashboardView()">📋 My Sites</button>
       <div class="user-pill">👤 ${escHtml(authEmail)}${planLabel(authPlan)}</div>
       ${authPlan !== 'free' ? `<button class="btn-login-top" onclick="openBillingPortal()" style="font-size:12px;">Billing</button>` : `<button class="btn-signup-top" style="font-size:13px;padding:7px 16px;" onclick="openUpgradeModal()">⬆ Upgrade</button>`}
       <button class="btn-login-top" onclick="openAccountModal()" style="font-size:12px;">⚙ My Account</button>
@@ -1853,6 +1959,8 @@ function logout() {
   authToken = null; authEmail = null; authPlan = 'free'; currentSiteUuid = null;
   localStorage.removeItem('ss_token'); localStorage.removeItem('ss_email'); localStorage.removeItem('ss_plan');
   renderAuthArea();
+  showBuilderView();
+  startOver();
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1921,7 +2029,12 @@ async function submitAuth() {
     closeAuthModal();
     renderAuthArea();
 
+    // A pending save means they were mid-wizard when prompted to sign in —
+    // finish that save and show them the result, don't yank them to the
+    // dashboard. Any other login/register lands on the dashboard, per the
+    // "don't show a logged-in person the marketing page" rule.
     if (shouldSave) saveAndShare();
+    else showDashboardView();
   } catch (e) {
     showAuthError('Network error. Please check your connection.');
   } finally {
@@ -1934,6 +2047,162 @@ function showAuthError(msg) {
   const el = document.getElementById('auth-error');
   el.textContent = msg;
   el.classList.add('show');
+}
+
+/* ═══════════════════════════════════════════════════
+   DASHBOARD
+   Logged-in visitors land here instead of the marketing page — see
+   showDashboardView()/showBuilderView() for the view switch, called from
+   DOMContentLoaded, submitAuth(), logout(), editSite() and buildNewSite().
+═══════════════════════════════════════════════════ */
+const INDUSTRY_EMOJI = {
+  'Photography':'📷', 'Beauty & Wellness':'💆', 'Food & Beverage':'🍽️', 'Fashion & Apparel':'👗',
+  'Health & Fitness':'🏋️', 'Home & Interior':'🛋️', 'Art & Creative':'🎨', 'Coaching & Consulting':'💬',
+  'Real Estate':'🏠', 'Technology':'💻', 'Retail / E-commerce':'🛍️', 'Non-profit':'🤝',
+};
+function industryEmoji(ind) { return INDUSTRY_EMOJI[ind] || '🌟'; }
+
+// Friendly relative time for the "Updated ..." tag on each site card.
+function timeAgo(dateStr) {
+  const then = new Date(dateStr).getTime();
+  if (!dateStr || Number.isNaN(then)) return '';
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+  return `${Math.floor(months / 12)} year${Math.floor(months / 12) === 1 ? '' : 's'} ago`;
+}
+
+// Mirrors the priority the server itself would answer with for "where does
+// this site actually live" — custom domain, then subdomain, then the plain
+// preview link every site always has.
+function siteLiveUrl(site) {
+  if (site.customDomain) return `https://${site.customDomain}`;
+  if (site.subdomain && subdomainSuffix) return `https://${site.subdomain}.${subdomainSuffix}`;
+  return `${location.origin}/preview/${site.uuid}`;
+}
+
+function showBuilderView() {
+  document.querySelector('.app').style.display = '';
+  const dash = document.getElementById('dashboard-view');
+  if (dash) dash.style.display = 'none';
+}
+
+function showDashboardView() {
+  document.querySelector('.app').style.display = 'none';
+  const mkt = document.getElementById('landing-marketing');
+  if (mkt) mkt.style.display = 'none';
+  const dash = document.getElementById('dashboard-view');
+  if (dash) dash.style.display = '';
+  renderDashboard();
+}
+
+async function renderDashboard() {
+  const greetEl = document.getElementById('dash-greeting');
+  if (greetEl) {
+    const hour = new Date().getHours();
+    const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+    const name = (authEmail || '').split('@')[0] || 'there';
+    greetEl.textContent = `Good ${part}, ${escHtml(name)} 👋`;
+  }
+
+  const wrap = document.getElementById('dash-sites-wrap');
+  const tipEl = document.getElementById('dash-tip');
+  wrap.innerHTML = `<div style="text-align:center;padding:48px 0;color:var(--text-muted);font-size:14px;">Loading your sites…</div>`;
+  if (authToken) refreshPlan(); // catch a plan upgrade that hasn't reached the UI yet
+
+  let sites = [];
+  try {
+    const res = await fetch('/api/sites', { headers: { 'Authorization': `Bearer ${authToken}` } });
+    if (res.ok) sites = await res.json();
+  } catch (e) { console.error('Could not load sites:', e); }
+
+  const limit = CLIENT_SITE_LIMITS[authPlan] ?? 1;
+  const used = sites.length;
+  document.getElementById('dash-plan-label').textContent = `${planNameText(authPlan)} plan`;
+  document.getElementById('dash-plan-value').textContent = limit === Infinity
+    ? `${used} site${used === 1 ? '' : 's'}`
+    : `${used} of ${limit} site${limit === 1 ? '' : 's'} used`;
+  document.getElementById('dash-progress-fill').style.width =
+    (limit === Infinity ? (used ? 100 : 0) : Math.min(100, Math.round((used / Math.max(limit, 1)) * 100))) + '%';
+  document.getElementById('dash-upgrade-btn').style.display = authPlan === 'free' ? '' : 'none';
+
+  if (!sites.length) {
+    wrap.innerHTML = `
+      <div class="dash-empty">
+        <div class="dash-empty-emoji">🚀</div>
+        <h3>Let's build your first site</h3>
+        <p>Answer a few questions and walk away with a real website — free to start, no code required.</p>
+        <button class="dash-btn-primary" onclick="buildNewSite()">+ Create a new site</button>
+      </div>`;
+    tipEl.style.display = 'none';
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="dash-section-hdr">
+      <h2>Your sites<span class="dash-count">${sites.length}</span></h2>
+      <button class="dash-btn-primary" onclick="buildNewSite()">+ New site</button>
+    </div>
+    <div class="dash-grid" id="dash-grid"></div>`;
+
+  document.getElementById('dash-grid').innerHTML = sites.map(s => {
+    const p = s.colorPrimary || '#6C47FF', a = s.colorAccent || '#FF6B6B';
+    const meta = [s.industry, s.location].filter(Boolean).join(' · ') || 'Website';
+    const updated = timeAgo(s.updated_at || s.created_at);
+    return `
+    <div class="dash-card">
+      <div class="dash-card-strip" style="background:linear-gradient(135deg,${escHtml(p)},${escHtml(a)});">
+        <button class="dash-card-delete" title="Delete site" onclick="event.stopPropagation();dashDeleteSite('${escHtml(s.uuid)}',this)">🗑</button>
+        <span class="dash-emoji">${industryEmoji(s.industry)}</span>
+      </div>
+      <div class="dash-card-body">
+        <p class="dash-biz-name">${escHtml(s.bizName || 'Untitled site')}</p>
+        <p class="dash-biz-meta">${escHtml(meta)}</p>
+        <div class="dash-card-actions">
+          <button class="dash-btn-edit" onclick="editSite('${escHtml(s.uuid)}')">Edit</button>
+          <button class="dash-btn-view" onclick="window.open('${siteLiveUrl(s)}','_blank')">View live ↗</button>
+        </div>
+        ${updated ? `<div class="dash-updated-tag"><span class="dash-live-dot"></span>Updated ${updated}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('') + `
+    <div class="dash-new-card" onclick="buildNewSite()">
+      <div class="dash-plus">+</div>
+      <div class="dash-new-title">Create a new site</div>
+      <div class="dash-new-sub">Answer a few questions, get a full site in minutes.</div>
+    </div>`;
+
+  tipEl.style.display = authPlan === 'free' ? 'flex' : 'none';
+}
+
+function planNameText(plan) {
+  if (plan === 'pro') return 'Pro';
+  if (plan === 'starter') return 'Starter';
+  return 'Free';
+}
+
+// Same permanent-delete flow as the "My Sites" drawer's deleteSite(), just
+// re-rendering the dashboard grid afterward instead of removing one <li>.
+async function dashDeleteSite(uuid, btnEl) {
+  const card = btnEl.closest('.dash-card');
+  const name = card?.querySelector('.dash-biz-name')?.textContent || 'this site';
+  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  btnEl.disabled = true;
+  try {
+    const res = await fetch(`/api/sites/${uuid}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${authToken}` } });
+    if (!res.ok) throw new Error('Delete failed');
+    if (currentSiteUuid === uuid) { editMode = false; currentSiteUuid = null; }
+    renderDashboard();
+  } catch (e) {
+    btnEl.disabled = false;
+    alert('Could not delete that site. Please try again.');
+  }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -3100,16 +3369,20 @@ async function buildNewSite() {
       const sites = await res.json();
       const limit = CLIENT_SITE_LIMITS[authPlan] ?? 1;
       if (Array.isArray(sites) && sites.length >= limit) {
-        renderNewSiteCta(sites.length);
+        renderNewSiteCta(sites.length); // keeps the old drawer's CTA in sync too, if it's ever opened
+        openUpgradeModal(); // the dashboard has no drawer to show this in — the modal is the visible surface
         return;
       }
     } catch (e) { /* if the check fails, fall through — the server enforces the real limit on save anyway */ }
   }
-  window.location.href = '/';
+  // "?new=1" tells the next page load to skip the dashboard and drop straight
+  // into the wizard — see the DOMContentLoaded handler.
+  window.location.href = '/?new=1';
 }
 
 async function editSite(uuid) {
   closeDrawer();
+  showBuilderView(); // no-op if already there; unhides the wizard when called from a dashboard card
   try {
     const res = await fetch(`/api/sites/${uuid}`, { headers:{ 'Authorization':`Bearer ${authToken}` } });
     if (!res.ok) throw new Error('Could not load site');

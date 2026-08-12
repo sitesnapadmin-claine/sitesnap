@@ -404,6 +404,7 @@ async function initDb() {
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS subdomain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS custom_domain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
+      'ALTER TABLE sites ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires BIGINT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT',
@@ -440,6 +441,7 @@ async function initDb() {
     'ALTER TABLE sites ADD COLUMN subdomain TEXT',
     'ALTER TABLE sites ADD COLUMN custom_domain TEXT',
     'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
+    'ALTER TABLE sites ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP',
     'ALTER TABLE users ADD COLUMN reset_token_hash TEXT',
     'ALTER TABLE users ADD COLUMN reset_expires INTEGER',
     'ALTER TABLE users ADD COLUMN name TEXT',
@@ -907,15 +909,24 @@ app.put('/api/sites/:uuid', requireAuth, async (req, res) => {
   const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site) return res.status(404).json({ error: 'Site not found' });
   if (site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
-  await dbRun('UPDATE sites SET data = ? WHERE uuid = ?', JSON.stringify(data), req.params.uuid);
+  // CURRENT_TIMESTAMP is ANSI SQL — works unchanged on both the Postgres and
+  // SQLite drivers, so this needs no dialect branching like toPgPlaceholders.
+  await dbRun('UPDATE sites SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE uuid = ?', JSON.stringify(data), req.params.uuid);
   res.json({ uuid: req.params.uuid, url: `${BASE_URL}/preview/${req.params.uuid}` });
 });
 
 app.get('/api/sites', requireAuth, async (req, res) => {
-  const rows = await dbAll('SELECT uuid, subdomain, custom_domain, created_at, data FROM sites WHERE user_id = ? ORDER BY created_at DESC', req.user.id);
+  const rows = await dbAll('SELECT uuid, subdomain, custom_domain, created_at, updated_at, data FROM sites WHERE user_id = ? ORDER BY created_at DESC', req.user.id);
   res.json(rows.map(r => {
     const d = JSON.parse(r.data);
-    return { uuid: r.uuid, subdomain: r.subdomain, customDomain: r.custom_domain, created_at: r.created_at, bizName: d.bizName, industry: d.industry, designStyle: d.designStyle };
+    return {
+      uuid: r.uuid, subdomain: r.subdomain, customDomain: r.custom_domain,
+      created_at: r.created_at, updated_at: r.updated_at || r.created_at,
+      bizName: d.bizName, industry: d.industry, location: d.location, designStyle: d.designStyle,
+      // Dashboard site cards use the site's own palette for their header strip —
+      // it's the one part of the dashboard that's automatically personal.
+      colorPrimary: d.colorPrimary, colorAccent: d.colorAccent,
+    };
   }));
 });
 
