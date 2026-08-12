@@ -532,14 +532,26 @@
   .tmpl-card { display: flex; flex-direction: column; }
   /* The whole 3-device composite is designed once at a fixed 500×340 canvas
      (see .tmpl-scene-canvas below) and then scaled as a single unit to fit
-     whatever width .tmpl-scene actually renders at — mobile phone, tablet,
-     or a wide desktop card. Because it's a uniform scale() rather than a
-     reflow, nothing inside (text, numbers, photos) can crop or overflow at
-     any size; it just gets uniformly smaller, exactly like shrinking a photo.
-     container-type turns .tmpl-scene into the reference for the `cqw` unit
-     used in that scale() calculation. */
-  .tmpl-scene { position: relative; margin-bottom: 6px; container-type: inline-size; aspect-ratio: 500 / 340; }
-  .tmpl-scene-canvas { position: relative; width: 500px; height: 340px; transform-origin: top left; transform: scale(calc(100cqw / 500px)); }
+     the card's actual rendered width at any screen size — mobile phone,
+     tablet, or a wide desktop card. Because it's a uniform scale() rather
+     than a reflow, nothing inside (text, numbers, photos) can crop or
+     overflow at any size; it just gets uniformly smaller, like shrinking a
+     photo. --tmpl-card-w is plain calc()/vw math mirroring the grid math
+     above (deliberately not container-query units — those depend on the
+     browser having established container-query layout before first paint,
+     which some mobile browsers don't do reliably, and a failed cqw lookup
+     silently falls back to an unscaled, oversized canvas — exactly the
+     "doesn't fit" bug this replaces). vw/calc has no such dependency. */
+  .tmpl-scene {
+    position: relative;
+    margin-bottom: 6px;
+    --tmpl-card-w: calc((min(1180px, 100vw - 48px) - 40px) / 2);
+    height: calc(var(--tmpl-card-w) * 340 / 500);
+  }
+  @media (max-width: 860px) {
+    .tmpl-scene { --tmpl-card-w: calc(100vw - 48px); }
+  }
+  .tmpl-scene-canvas { position: absolute; top: 0; left: 0; width: 500px; height: 340px; transform-origin: top left; transform: scale(calc(var(--tmpl-card-w) / 500px)); }
 
   /* iMac */
   .tmpl-imac { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 84%; z-index: 1; }
