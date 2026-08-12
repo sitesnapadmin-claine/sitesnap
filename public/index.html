@@ -474,6 +474,20 @@
   .cta-btn-lg { padding: 18px 44px; font-size: 17px; }
   .mkt-fine { font-size: 12.5px; color: rgba(255,255,255,0.75); margin-top: 16px; }
 
+  /* ── Founder trust section ─────────────────────────── */
+  .founder-grid { display: grid; grid-template-columns: 340px 1fr; gap: 56px; align-items: center; }
+  @media (max-width: 860px) { .founder-grid { grid-template-columns: 1fr; gap: 28px; } }
+  .founder-photo { width: 100%; height: auto; aspect-ratio: 900 / 1381; object-fit: cover; display: block; border-radius: 20px; box-shadow: 0 24px 48px -16px rgba(26,26,46,0.18); }
+  .founder-caption { margin-top: 14px; text-align: center; font-size: 14px; color: var(--text-muted); }
+  .founder-caption b { color: var(--text); font-weight: 700; }
+  .founder-copy p.mkt-sub { max-width: none; margin-bottom: 16px; }
+  .founder-links { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 26px; }
+  .founder-credential, .founder-testimonials { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 600; padding: 10px 16px; border-radius: 10px; text-decoration: none; transition: all 0.2s; }
+  .founder-credential { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .founder-credential:hover { border-color: var(--brand); color: var(--brand); }
+  .founder-testimonials { background: var(--brand-light); color: var(--brand); }
+  .founder-testimonials:hover { background: var(--brand); color: #fff; }
+
   /* Footer */
   .mkt-footer { padding: 36px 24px 48px; text-align: center; }
   .mkt-footer .logo { justify-content: center; margin-bottom: 12px; }
@@ -1600,6 +1614,28 @@
         <div class="mkt-card"><div class="ico">✍️</div><h4>Your words, your way</h4><p>Every headline and section is editable — or let auto-generated copy get you started.</p></div>
         <div class="mkt-card"><div class="ico">🔁</div><h4>Edit anytime</h4><p>Update photos, copy, or your color palette whenever your business changes — no rebuild.</p></div>
         <div class="mkt-card"><div class="ico">💬</div><h4>Buttons that work</h4><p>Call, email, and link buttons are wired up correctly the first time — no dead links.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOUNDER -->
+  <section class="mkt-section" id="landing-founder" style="padding-top:0;">
+    <div class="mkt-wrap">
+      <div class="founder-grid">
+        <div>
+          <img src="/founder-claine.jpg" alt="Claine Gross, founder of SiteSnap" class="founder-photo" width="900" height="1381" loading="lazy">
+          <div class="founder-caption"><b>Claine Gross</b> — Founder, SiteSnap</div>
+        </div>
+        <div class="founder-copy">
+          <div class="mkt-eyebrow">Who's behind SiteSnap</div>
+          <h2 class="mkt-h2">Built by someone who's actually done this</h2>
+          <p class="mkt-sub">I'm Claine. For the past 9 years I've worked as a website and funnel designer and developer, building sites like these by hand for paying clients. I also hold a Professional Digital Marketing Qualification from the DMA — most of my career has lived in the systems, automation, and marketing strategy behind a site, not just its layout.</p>
+          <p class="mkt-sub">That's the edge here. SiteSnap isn't a template engine someone coded and never used on a real business — every layout and default is something I'd genuinely put in front of a client I was charging for.</p>
+          <div class="founder-links">
+            <a href="https://www.dma.org.uk/learning-and-events/learning/why-train-with-dma" target="_blank" rel="noopener" class="founder-credential">🎓 Professional Digital Marketing Qualification, DMA</a>
+            <a href="https://digitalwhizcreative.com/#reviews" target="_blank" rel="noopener" class="founder-testimonials">Read client testimonials →</a>
+          </div>
+        </div>
       </div>
     </div>
   </section>
