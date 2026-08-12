@@ -1674,7 +1674,7 @@ body{font-family:${f.bodyFont};background:${f.bg};color:${f.text};line-height:1.
 a{text-decoration:none;color:inherit;}
 nav{background:${f.navBg};padding:18px 48px;display:flex;align-items:center;justify-content:space-between;border-bottom:${f.navBorder};position:sticky;top:0;z-index:100;}
 .nav-links{display:flex;gap:32px;font-size:14px;font-weight:500;color:${f.navText};opacity:0.8;}
-.nav-cta{display:inline-block;text-decoration:none;padding:10px 24px;background:${f.primary};color:${f.ctaText};border-radius:${f.btnRadius};font-size:14px;font-weight:700;cursor:pointer;border:none;}
+.nav-cta{display:inline-block;text-decoration:none;padding:10px 24px;background:${f.btnBg};color:${f.ctaText};border-radius:${f.btnRadius};font-size:14px;font-weight:700;cursor:pointer;border:none;}
 .hero{padding:${f.heroPadding};background:${f.heroBg};display:grid;grid-template-columns:1fr ${f.heroImgCol};gap:64px;align-items:center;${f.heroExtra}}
 ${bg.hero ? `.hero{${bgStyle(bg.hero, 'left')}}
 .hero h1{color:${bgTextVars(bg.hero).heading};text-shadow:${bgTextVars(bg.hero).shadow};}
@@ -1689,7 +1689,7 @@ ${bg.hero ? `.hero{${bgStyle(bg.hero, 'left')}}
 .hero-eyebrow{font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${f.accent};margin-bottom:16px;}
 .hero-sub{font-size:17px;color:${f.heroSubText};max-width:480px;margin-bottom:36px;line-height:1.6;}
 .hero-btns{display:flex;gap:16px;flex-wrap:wrap;}
-.btn-p{text-decoration:none;padding:16px 36px;background:${f.primary};color:${f.ctaText};border-radius:${f.btnRadius};font-size:16px;font-weight:700;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform 0.15s;}
+.btn-p{text-decoration:none;padding:16px 36px;background:${f.btnBg};color:${f.ctaText};border-radius:${f.btnRadius};font-size:16px;font-weight:700;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform 0.15s;}
 .btn-p:hover{transform:translateY(-2px);}
 .btn-s{display:inline-block;text-decoration:none;padding:16px 32px;background:transparent;color:${f.heroText};border-radius:${f.btnRadius};font-size:16px;font-weight:600;border:2px solid ${f.heroBorder};cursor:pointer;}
 .trust-bar{padding:20px 48px;background:${f.trustBg};border-top:${f.trustBorder};border-bottom:${f.trustBorder};display:flex;align-items:center;justify-content:center;gap:48px;flex-wrap:wrap;}
@@ -1999,10 +1999,16 @@ function heroHeadline(name, industry) {
   return map[industry] || `${escHtml(name)}:<br><em>Where quality meets purpose.</em>`;
 }
 function getTheme(s) {
-  const p = s.colorPrimary||'#6C47FF', a = s.colorAccent||'#FF6B6B', font = s.fontStyle||'modern', style = s.designStyle||'light-airy';
+  // colorButton is a distinct choice from colorPrimary — set via its own swatch
+  // in Step 2 ("Button color"). It falls back to Primary only when the person
+  // never touched the button swatch, exactly like the client-side wizard
+  // preview (getClientTheme's `btnBg`) already does. Buttons must read this,
+  // not f.primary, or a customer's chosen button colour never reaches their
+  // live site even though the in-progress preview showed it correctly.
+  const p = s.colorPrimary||'#6C47FF', a = s.colorAccent||'#FF6B6B', btn = s.colorButton||p, font = s.fontStyle||'modern', style = s.designStyle||'light-airy';
   const fm = {modern:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;700;800",bodyFont:"'Inter',sans-serif",heroWeight:800,heroTracking:'-1px'},elegant:{headFont:"'Playfair Display',serif",fontUrl:"Playfair+Display:wght@400;700",bodyFont:"'Inter',sans-serif",heroWeight:700,heroTracking:'-0.5px'},playful:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;800;900",bodyFont:"'Inter',sans-serif",heroWeight:900,heroTracking:'-2px'}};
   const f = fm[font]||fm.modern;
-  const base = {...f,primary:p,accent:a};
+  const base = {...f,primary:p,accent:a,btnBg:btn};
   const themes = {
     'light-airy':{...base,bg:'#FAF7F2',text:'#3D2B1F',navBg:'#FFFEF9',navBorder:'1px solid #F0E8DC',navText:'#3D2B1F',heroBg:'#FAF7F2',heroText:'#3D2B1F',heroSubText:'#7B6E65',heroImgBg:'linear-gradient(135deg,#F5E6D3,#EDD5B8)',heroImgCol:'0.9fr',heroPadding:'80px 48px',heroExtra:'',heroImgExtra:'',heroEmoji:'🌸',heroBorder:'#D4B8A0',trustBg:'#F5EFE6',trustBorder:'1px solid #E8D5C4',trustText:'#7B6E65',aboutBg:'#FFFEF9',aboutImgBg:'linear-gradient(135deg,#EDD5B8,#F5E6D3)',aboutImgExtra:'',aboutEmoji:'✨',featureBg:'#FAF7F2',cardBg:'#FFFEF9',cardRadius:'16px',cardBorder:'1px solid #F0E8DC',testimonialBg:'#F5EFE6',testimonialCardBg:'#FFFEF9',testimonialBorder:'1px solid #E8D5C4',ctaSectionBg:'#C4966A',ctaExtra:'',ctaSectionText:'#FFFEF9',ctaSectionSub:'rgba(255,255,255,0.8)',ctaSectionBtn:'#FFFEF9',ctaSectionBtnText:'#3D2B1F',footerBg:'#3D2B1F',footerBorder:'none',footerText:'#FAF7F2',headingColor:'#3D2B1F',subTextColor:'#7B6E65',imgRadius:'20px',btnRadius:'8px',ctaText:'#FFFEF9',feat1:'🌺',feat2:'🤝',feat3:'⭐'},
     'bold-modern':{...base,bg:'#0D0D0D',text:'#FFFFFF',navBg:'#0D0D0D',navBorder:'1px solid #1F1F1F',navText:'#FFFFFF',heroBg:'#0D0D0D',heroText:'#FFFFFF',heroSubText:'#9CA3AF',heroImgBg:`linear-gradient(135deg,${p}33,${a}33)`,heroImgCol:'0.8fr',heroPadding:'100px 48px',heroExtra:'',heroImgExtra:'border:1px solid #1F1F1F;',heroEmoji:'⚡',heroBorder:'#333',trustBg:'#111',trustBorder:'1px solid #1F1F1F',trustText:'#9CA3AF',aboutBg:'#111',aboutImgBg:`linear-gradient(135deg,#1F1F1F,${p}22)`,aboutImgExtra:'border:1px solid #2A2A2A;',aboutEmoji:'🚀',featureBg:'#0D0D0D',cardBg:'#111',cardRadius:'12px',cardBorder:'1px solid #1F1F1F',testimonialBg:'#111',testimonialCardBg:'#1A1A1A',testimonialBorder:'1px solid #2A2A2A',ctaSectionBg:`linear-gradient(135deg,${p},${a})`,ctaExtra:'',ctaSectionText:'#FFFFFF',ctaSectionSub:'rgba(255,255,255,0.8)',ctaSectionBtn:'#FFFFFF',ctaSectionBtnText:'#0D0D0D',footerBg:'#000',footerBorder:'1px solid #1F1F1F',footerText:'#FFFFFF',headingColor:'#FFFFFF',subTextColor:'#9CA3AF',imgRadius:'12px',btnRadius:'6px',ctaText:'#FFFFFF',feat1:'⚡',feat2:'🛡️',feat3:'🎯'},
