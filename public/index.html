@@ -196,10 +196,14 @@
      right. Below 940px it falls back to the original single centred column
      with the video underneath, so nothing depends on the wide layout. */
   .hero-video { margin-top:28px; }
-  .browser-frame { border-radius:12px; overflow:hidden; background:#1E1E24; box-shadow:0 24px 60px -14px rgba(20,20,40,0.38), 0 0 0 1px rgba(0,0,0,0.05); }
+  .browser-frame { position:relative; border-radius:12px; overflow:hidden; background:#1E1E24; box-shadow:0 24px 60px -14px rgba(20,20,40,0.38), 0 0 0 1px rgba(0,0,0,0.05); }
   .browser-bar { display:flex; align-items:center; gap:7px; padding:9px 12px; background:#2A2A32; }
   .browser-bar .bd { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
   .browser-bar .bd.r{background:#FF5F57;} .browser-bar .bd.y{background:#FEBC2E;} .browser-bar .bd.g{background:#28C840;}
+  .hero-sound-btn { position:absolute; bottom:14px; right:14px; width:38px; height:38px; border-radius:50%; border:1px solid rgba(255,255,255,0.28); background:rgba(17,17,23,0.55); backdrop-filter:blur(4px); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background 0.2s,transform 0.15s; z-index:2; }
+  .hero-sound-btn:hover { background:rgba(17,17,23,0.78); transform:scale(1.06); }
+  .hero-sound-hint { position:absolute; bottom:20px; right:60px; background:rgba(17,17,23,0.78); color:#fff; font-size:12px; font-weight:600; padding:6px 10px; border-radius:8px; white-space:nowrap; pointer-events:none; opacity:0; animation:heroSoundHint 0.4s ease 0.6s 1 forwards; z-index:2; }
+  @keyframes heroSoundHint { from{opacity:0; transform:translateX(4px);} to{opacity:1; transform:translateX(0);} }
   .browser-url { flex:1; margin-left:6px; background:#1A1A20; border-radius:5px; padding:4px 10px; font-size:11px; color:#9CA3AF; text-align:center; overflow:hidden; white-space:nowrap; }
   .hero-video video { display:block; width:100%; height:auto; aspect-ratio:1280/800; background:#EEF0FF; }
   .hero-video-cap { font-size:12.5px; color:var(--text-muted); text-align:center; margin-top:10px; }
@@ -703,8 +707,10 @@
         </div>
       </div>
 
-      <!-- Real screen recording of the wizard building a fitness coach's site.
-           Muted + looping so it can autoplay; poster covers the pre-play frame. -->
+      <!-- Real screen recording of the wizard building a fitness coach's site,
+           narrated with a voiceover + music bed. Starts muted + looping so it
+           can autoplay (browsers require this); the sound toggle lets people
+           opt in to hear it. Poster covers the pre-play frame. -->
       <div class="hero-video">
         <div class="browser-frame">
           <div class="browser-bar">
@@ -717,6 +723,13 @@
             <source src="/sitesnap-teaser.webm" type="video/webm">
             <source src="/sitesnap-teaser.mp4" type="video/mp4">
           </video>
+          <button type="button" id="hero-sound-toggle" class="hero-sound-btn" aria-label="Turn sound on" aria-pressed="false">
+            <svg id="hero-sound-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/>
+              <path d="M16 15l5-5M21 15l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <div id="hero-sound-hint" class="hero-sound-hint">Tap for sound</div>
         </div>
         <div class="hero-video-cap">Real build, start to finish — no edits, no cuts.</div>
       </div>
@@ -2048,6 +2061,30 @@ function initHeroTeaser() {
 
   const v = document.getElementById('hero-teaser');
   if (!v) return;
+
+  // Sound toggle: the video autoplays muted (browsers require that), so the
+  // voiceover + music never plays until someone opts in via this button.
+  const soundBtn = document.getElementById('hero-sound-toggle');
+  const soundIcon = document.getElementById('hero-sound-icon');
+  const soundHint = document.getElementById('hero-sound-hint');
+  if (soundBtn && soundIcon) {
+    const MUTED_ICON = '<path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/>' +
+      '<path d="M16 15l5-5M21 15l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+    const ON_ICON = '<path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/>' +
+      '<path d="M16.5 8.5a5 5 0 010 7M19 6a8 8 0 010 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>';
+    const renderSoundBtn = () => {
+      soundIcon.innerHTML = v.muted ? MUTED_ICON : ON_ICON;
+      soundBtn.setAttribute('aria-label', v.muted ? 'Turn sound on' : 'Turn sound off');
+      soundBtn.setAttribute('aria-pressed', String(!v.muted));
+    };
+    renderSoundBtn();
+    soundBtn.addEventListener('click', () => {
+      v.muted = !v.muted;
+      if (!v.muted) v.play().catch(() => {});
+      renderSoundBtn();
+      if (soundHint) soundHint.style.display = 'none';
+    });
+  }
 
   // Respect a reduced-motion preference: stop the loop and hand over controls
   // instead of animating in the corner of someone's eye indefinitely.
