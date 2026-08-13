@@ -2036,9 +2036,6 @@ function syncHeroLayout() {
   const on = welcome.classList.contains('active');
   app.classList.toggle('app-hero', on);
   welcome.classList.toggle('hero-2col', on);
-  // Don't burn CPU decoding video that nobody can see.
-  const v = document.getElementById('hero-teaser');
-  if (v) { if (on) { v.play().catch(() => {}); } else { v.pause(); } }
 }
 
 function initHeroTeaser() {
@@ -2049,12 +2046,30 @@ function initHeroTeaser() {
   }
   syncHeroLayout();
 
+  const v = document.getElementById('hero-teaser');
+  if (!v) return;
+
   // Respect a reduced-motion preference: stop the loop and hand over controls
   // instead of animating in the corner of someone's eye indefinitely.
-  const v = document.getElementById('hero-teaser');
-  if (v && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     v.autoplay = false; v.loop = false; v.controls = true;
     v.pause();
+    return;
+  }
+
+  // Only decode while the video is actually on screen. An IntersectionObserver
+  // is used rather than watching the welcome step's class because the view
+  // switches hide whole containers (showDashboardView() sets display:none on
+  // .app while #step-welcome keeps its .active class) — a class watcher misses
+  // that and leaves a 55s loop decoding behind a hidden panel. Intersection
+  // covers every case: hidden ancestor, scrolled past, or another view active.
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) v.play().catch(() => {});
+        else v.pause();
+      });
+    }, { threshold: 0.1 }).observe(v);
   }
 }
 
