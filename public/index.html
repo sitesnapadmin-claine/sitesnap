@@ -189,6 +189,31 @@
   #step-welcome h1 span { color:var(--brand); }
   #step-welcome .tagline { font-size:17px; color:var(--text-muted); max-width:420px; margin:0 auto 36px; line-height:1.5; }
   .welcome-features { display:flex; gap:20px; justify-content:center; margin-bottom:36px; flex-wrap:wrap; }
+
+  /* ── HERO PRODUCT TEASER ──────────────────────────
+     The welcome step becomes a two-column hero once there's room for it:
+     copy on the left, a looping screen recording of the real wizard on the
+     right. Below 940px it falls back to the original single centred column
+     with the video underneath, so nothing depends on the wide layout. */
+  .hero-video { margin-top:28px; }
+  .browser-frame { border-radius:12px; overflow:hidden; background:#1E1E24; box-shadow:0 24px 60px -14px rgba(20,20,40,0.38), 0 0 0 1px rgba(0,0,0,0.05); }
+  .browser-bar { display:flex; align-items:center; gap:7px; padding:9px 12px; background:#2A2A32; }
+  .browser-bar .bd { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .browser-bar .bd.r{background:#FF5F57;} .browser-bar .bd.y{background:#FEBC2E;} .browser-bar .bd.g{background:#28C840;}
+  .browser-url { flex:1; margin-left:6px; background:#1A1A20; border-radius:5px; padding:4px 10px; font-size:11px; color:#9CA3AF; text-align:center; overflow:hidden; white-space:nowrap; }
+  .hero-video video { display:block; width:100%; height:auto; aspect-ratio:1280/800; background:#EEF0FF; }
+  .hero-video-cap { font-size:12.5px; color:var(--text-muted); text-align:center; margin-top:10px; }
+
+  @media(min-width:940px){
+    .app.app-hero { max-width:1140px; }
+    .app.app-hero .card { padding:44px; }
+    #step-welcome.hero-2col { display:grid; grid-template-columns:1fr 1.15fr; gap:48px; align-items:center; text-align:left; }
+    #step-welcome.hero-2col .tagline { margin:0 0 30px; }
+    #step-welcome.hero-2col .welcome-features { justify-content:flex-start; gap:14px 22px; }
+    #step-welcome.hero-2col .hero-terms { text-align:left; }
+    #step-welcome.hero-2col .hero-video { margin-top:0; }
+    #step-welcome.hero-2col h1 { font-size:44px; }
+  }
   .wf { display:flex; align-items:center; gap:6px; font-size:14px; color:var(--text-muted); font-weight:500; }
   .wf-dot { width:7px; height:7px; border-radius:50%; background:var(--brand); }
   .btn-start { display:inline-flex; align-items:center; gap:10px; padding:16px 36px; background:var(--brand); color:white; border:none; border-radius:var(--radius); font-size:16px; font-weight:700; cursor:pointer; transition:all 0.2s; }
@@ -661,19 +686,39 @@
 
     <!-- WELCOME -->
     <div id="step-welcome" class="step active">
-      <h1>Your website,<br>done in <span>minutes</span>.</h1>
-      <p class="tagline">No coding, no design skills needed. Just answer a few questions — we'll handle the rest.</p>
-      <div class="welcome-features">
-        <div class="wf"><div class="wf-dot"></div> Upload your logo &amp; photos</div>
-        <div class="wf"><div class="wf-dot"></div> Choose your style</div>
-        <div class="wf"><div class="wf-dot"></div> Get a shareable link</div>
-        <div class="wf"><div class="wf-dot"></div> Free to start</div>
+      <div class="hero-copy">
+        <h1>Your website,<br>done in <span>minutes</span>.</h1>
+        <p class="tagline">No coding, no design skills needed. Just answer a few questions — we'll handle the rest.</p>
+        <div class="welcome-features">
+          <div class="wf"><div class="wf-dot"></div> Upload your logo &amp; photos</div>
+          <div class="wf"><div class="wf-dot"></div> Choose your style</div>
+          <div class="wf"><div class="wf-dot"></div> Get a shareable link</div>
+          <div class="wf"><div class="wf-dot"></div> Free to start</div>
+        </div>
+        <button class="btn-start" onclick="startWizard()">Get Started →</button>
+        <div class="hero-terms" style="font-size:12px;color:var(--text-muted);margin-top:24px;">
+          <a href="/terms" target="_blank" rel="noopener" style="color:var(--text-muted);text-decoration:underline;">Terms</a>
+          &nbsp;·&nbsp;
+          <a href="/privacy" target="_blank" rel="noopener" style="color:var(--text-muted);text-decoration:underline;">Privacy</a>
+        </div>
       </div>
-      <button class="btn-start" onclick="startWizard()">Get Started →</button>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:24px;">
-        <a href="/terms" target="_blank" rel="noopener" style="color:var(--text-muted);text-decoration:underline;">Terms</a>
-        &nbsp;·&nbsp;
-        <a href="/privacy" target="_blank" rel="noopener" style="color:var(--text-muted);text-decoration:underline;">Privacy</a>
+
+      <!-- Real screen recording of the wizard building a fitness coach's site.
+           Muted + looping so it can autoplay; poster covers the pre-play frame. -->
+      <div class="hero-video">
+        <div class="browser-frame">
+          <div class="browser-bar">
+            <span class="bd r"></span><span class="bd y"></span><span class="bd g"></span>
+            <div class="browser-url">site-snap.app</div>
+          </div>
+          <video id="hero-teaser" autoplay muted loop playsinline preload="metadata"
+                 poster="/sitesnap-teaser-poster.jpg"
+                 aria-label="Screen recording: building a fitness coach's website in SiteSnap, start to finish">
+            <source src="/sitesnap-teaser.webm" type="video/webm">
+            <source src="/sitesnap-teaser.mp4" type="video/mp4">
+          </video>
+        </div>
+        <div class="hero-video-cap">Real build, start to finish — no edits, no cuts.</div>
       </div>
     </div>
 
@@ -1976,7 +2021,45 @@ const STEP_LABELS = ['Your Business','Branding','Your Message','Choose Vibe','Pr
 /* ═══════════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════
+   HERO TEASER LAYOUT
+   The welcome step is the only step that uses the wide two-column hero
+   (copy + product video). Rather than toggling the class from each of the
+   many functions that change steps (startWizard, goTo, startOver, editSite,
+   showDashboardView…) and risking one being missed, watch #step-welcome's
+   own class attribute and mirror it. It can't drift out of sync that way.
+═══════════════════════════════════════════════════ */
+function syncHeroLayout() {
+  const welcome = document.getElementById('step-welcome');
+  const app = document.querySelector('.app');
+  if (!welcome || !app) return;
+  const on = welcome.classList.contains('active');
+  app.classList.toggle('app-hero', on);
+  welcome.classList.toggle('hero-2col', on);
+  // Don't burn CPU decoding video that nobody can see.
+  const v = document.getElementById('hero-teaser');
+  if (v) { if (on) { v.play().catch(() => {}); } else { v.pause(); } }
+}
+
+function initHeroTeaser() {
+  const welcome = document.getElementById('step-welcome');
+  if (welcome) {
+    new MutationObserver(syncHeroLayout)
+      .observe(welcome, { attributes: true, attributeFilter: ['class'] });
+  }
+  syncHeroLayout();
+
+  // Respect a reduced-motion preference: stop the loop and hand over controls
+  // instead of animating in the corner of someone's eye indefinitely.
+  const v = document.getElementById('hero-teaser');
+  if (v && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    v.autoplay = false; v.loop = false; v.controls = true;
+    v.pause();
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  initHeroTeaser();
   renderAuthArea();
   // Refresh plan from server if logged in (handles return from Stripe)
   if (authToken) refreshPlan();
