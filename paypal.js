@@ -281,6 +281,34 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
     return result.verification_status === 'SUCCESS';
   }
 
+  // A full refund of the $29 Starter purchase takes Starter away again. A Pro customer keeps Pro;
+  // only the Starter order is forgotten, so Pro falls back to Free (not Starter) when it ends.
+  async function handleStarterRefund(refund) {
+    const up = (refund.links || []).find((l) => l.rel === 'up');
+    const captureId = up && String(up.href || '').split('/').pop();
+    if (!captureId) return;
+    const cap = await api('GET', `/v2/payments/captures/${encodeURIComponent(captureId)}`);
+    const [uid, key] = String(cap.custom_id || '').split(':');
+    const userId = parseInt(uid, 10);
+    if (!userId || key !== 'starter') return;
+    if (cap.status !== 'REFUNDED') {
+      console.log(`PayPal Starter payment for user ${userId} was only partly refunded, plan left as it is`);
+      return;
+    }
+    const row = await dbGet('SELECT plan, paypal_order_id FROM users WHERE id = ?', userId);
+    if (!row) return;
+    const orderId = cap.supplementary_data && cap.supplementary_data.related_ids && cap.supplementary_data.related_ids.order_id;
+    if (orderId && row.paypal_order_id && row.paypal_order_id !== orderId) return; // a different, newer purchase
+    await dbRun('UPDATE users SET paypal_order_id = NULL WHERE id = ?', userId);
+    if (row.plan === 'starter') {
+      // The date written to paypal_access_until stops an old login token from restoring Starter
+      await dbRun("UPDATE users SET plan = 'free', paypal_access_until = ? WHERE id = ?", new Date().toISOString(), userId);
+      console.log(`User ${userId} Starter refunded, plan set to free`);
+    } else {
+      console.log(`User ${userId} Starter refunded, plan stays ${row.plan}`);
+    }
+  }
+
   async function handleWebhook(req, res) {
     let event;
     try {
@@ -343,6 +371,13 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
           }
           break;
         }
+        case 'PAYMENT.CAPTURE.REFUNDED':
+          await handleStarterRefund(r);
+          break;
+        case 'PAYMENT.SALE.REFUNDED':
+          // A refunded monthly payment may be goodwill, so Pro is not cut off automatically
+          console.warn('PayPal subscription payment refunded, review this customer by hand:', r.id);
+          break;
         case 'BILLING.SUBSCRIPTION.PAYMENT.FAILED':
           console.warn('PayPal payment failed for subscription:', r.id);
           break;
