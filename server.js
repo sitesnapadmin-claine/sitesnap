@@ -618,10 +618,21 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, created_at, password_hash FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, created_at, password_hash FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const { password_hash, stripe_customer_id, paypal_subscription_id, ...safe } = user;
-  res.json({ ...safe, hasPaymentMethod: Boolean(stripe_customer_id || paypal_subscription_id), needsPassword: !isUsablePasswordHash(password_hash) });
+  const { password_hash, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, ...safe } = user;
+  // Used by the "Change plan" screen: is Pro renewing, has it been cancelled (and until when), does the customer own Starter
+  const planEndsAt = !paypal_subscription_id && paypal_access_until && Date.parse(paypal_access_until) > Date.now()
+    ? new Date(paypal_access_until).toISOString() : null;
+  res.json({
+    ...safe,
+    hasPaymentMethod: Boolean(stripe_customer_id || paypal_subscription_id),
+    needsPassword: !isUsablePasswordHash(password_hash),
+    provider: (paypal_subscription_id || paypal_order_id || paypal_access_until) ? 'paypal' : (stripe_customer_id ? 'stripe' : null),
+    autoRenews: Boolean(paypal_subscription_id) || (safe.plan === 'pro' && Boolean(stripe_customer_id)),
+    planEndsAt,
+    ownsStarter: Boolean(paypal_order_id) || safe.plan === 'starter',
+  });
 });
 
 // ── ACCOUNT: update profile (name / email) ─────────────────────────────────────
@@ -1120,6 +1131,8 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
   const plan = PLANS[planKey];
 
   if (paypal.enabled) {
+    if (planKey === 'pro' && user.paypal_subscription_id) return res.status(400).json({ error: 'You already have an active Pro subscription.' });
+    if (planKey === 'starter' && (user.plan === 'starter' || user.paypal_order_id)) return res.status(400).json({ error: 'You already own Starter.' });
     try {
       const url = await paypal.startCheckout({ planKey, user, baseUrl: BASE_URL });
       return res.json({ url });
@@ -1158,6 +1171,19 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('Stripe checkout error:', e.message);
     res.status(500).json({ error: 'Could not create checkout session. Check your Stripe key.' });
+  }
+});
+
+// Cancel Pro from the "Change plan" screen (PayPal). Pro stays until the paid month ends.
+app.post('/api/billing/cancel', requireAuth, async (req, res) => {
+  const user = await dbGet('SELECT paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+  if (!user?.paypal_subscription_id) return res.status(400).json({ error: 'There is no active subscription to cancel.' });
+  try {
+    const planEndsAt = await paypal.cancelForUser(req.user.id, user.paypal_subscription_id);
+    res.json({ ok: true, planEndsAt });
+  } catch (e) {
+    console.error('PayPal cancel error:', e.message);
+    res.status(500).json({ error: 'Could not cancel just now. Please try again, or manage it in PayPal.' });
   }
 });
 
