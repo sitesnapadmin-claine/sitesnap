@@ -385,6 +385,16 @@
   .btn-upgrade { width:100%; padding:12px; border-radius:10px; border:none; background:var(--brand); color:white; font-size:14px; font-weight:700; cursor:pointer; margin-top:16px; transition:all 0.2s; }
   .btn-upgrade:hover { background:var(--brand-dark); }
   .btn-upgrade.loading { opacity:0.7; pointer-events:none; }
+  .plan-modal { max-width:860px; }
+  .plans-grid.three { grid-template-columns:repeat(3,1fr); }
+  @media(max-width:760px){.plans-grid.three{grid-template-columns:1fr;}}
+  .plan-card.current { border-color:var(--success); cursor:default; }
+  .plan-card.current:hover { box-shadow:none; }
+  .plan-card .plan-note { font-size:12px; color:var(--text-muted); margin-top:10px; line-height:1.4; min-height:16px; }
+  .btn-upgrade.secondary { background:white; color:var(--brand); border:2px solid var(--brand); }
+  .btn-upgrade.secondary:hover { background:#F5F2FF; }
+  .btn-upgrade:disabled { background:var(--surface); color:var(--text-muted); border:2px solid var(--border); cursor:default; }
+  #plan-msg { text-align:center; font-size:13px; margin-top:16px; line-height:1.5; min-height:18px; }
   .upgrade-skip { text-align:center; margin-top:20px; font-size:13px; color:var(--text-muted); }
   .upgrade-skip a { color:var(--brand); cursor:pointer; font-weight:600; }
 
@@ -1809,7 +1819,7 @@
             <div class="dash-progress-track"><div class="dash-progress-fill" id="dash-progress-fill" style="width:0%;"></div></div>
           </div>
         </div>
-        <button class="dash-btn-primary" id="dash-upgrade-btn" onclick="openUpgradeModal()" style="display:none;">⬆ Upgrade to Pro</button>
+        <button class="dash-btn-primary" id="dash-upgrade-btn" onclick="openPlanModal()">⬆ Upgrade to Pro</button>
       </div>
     </div>
   </div>
@@ -1860,6 +1870,17 @@
       </div>
     </div>
     <div class="upgrade-skip">Already paid? <a onclick="closeUpgradeModal()">Close and continue →</a></div>
+  </div>
+</div>
+
+<!-- CHANGE PLAN MODAL -->
+<div class="modal-overlay" id="plan-modal">
+  <div class="modal upgrade-modal plan-modal">
+    <button class="modal-close" onclick="closePlanModal()">×</button>
+    <h3>Your plan</h3>
+    <p class="modal-sub">Reactivate Pro, switch to Starter, or stay on Free. Your sites stay safe whichever you choose.</p>
+    <div class="plans-grid three" id="plan-cards"><div class="plan-note">Loading your plan…</div></div>
+    <div id="plan-msg"></div>
   </div>
 </div>
 
@@ -1936,7 +1957,7 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn-login-top" id="acct-manage-billing-btn" style="font-size:13px;display:none;" onclick="openBillingPortal()">Manage billing / card</button>
-        <button class="btn-signup-top" id="acct-upgrade-btn" style="font-size:13px;padding:8px 16px;display:none;" onclick="closeAccountModal();openUpgradeModal();">⬆ Upgrade</button>
+        <button class="btn-signup-top" id="acct-upgrade-btn" style="font-size:13px;padding:8px 16px;" onclick="closeAccountModal();openPlanModal();">Change plan</button>
       </div>
     </div>
 
@@ -2176,7 +2197,7 @@ function renderAuthArea() {
     area.innerHTML = `
       ${backBtn}
       <div class="user-pill">👤 ${escHtml(authEmail)}${planLabel(authPlan)}</div>
-      ${authPlan !== 'free' ? `<button class="btn-login-top" onclick="openBillingPortal()" style="font-size:12px;">Billing</button>` : `<button class="btn-signup-top" style="font-size:13px;padding:7px 16px;" onclick="openUpgradeModal()">⬆ Upgrade</button>`}
+      ${authPlan !== 'free' ? `<button class="btn-login-top" onclick="openPlanModal()" style="font-size:12px;">Change plan</button>` : `<button class="btn-signup-top" style="font-size:13px;padding:7px 16px;" onclick="openPlanModal()">⬆ Upgrade</button>`}
       <button class="btn-login-top" onclick="openAccountModal()" style="font-size:12px;">⚙ My Account</button>
       <button class="btn-logout" onclick="logout()">Logout</button>`;
   } else {
@@ -2410,7 +2431,7 @@ async function renderDashboard() {
     : `${used} of ${limit} site${limit === 1 ? '' : 's'} used`;
   document.getElementById('dash-progress-fill').style.width =
     (limit === Infinity ? (used ? 100 : 0) : Math.min(100, Math.round((used / Math.max(limit, 1)) * 100))) + '%';
-  document.getElementById('dash-upgrade-btn').style.display = authPlan === 'free' ? '' : 'none';
+  document.getElementById('dash-upgrade-btn').textContent = authPlan === 'free' ? '⬆ Upgrade to Pro' : 'Change plan';
 
   if (!sites.length) {
     wrap.innerHTML = `
@@ -3887,6 +3908,155 @@ async function startCheckout(plan) {
   }
 }
 
+/* ═══════════════════════════════════════════════════
+   CHANGE PLAN MODAL
+═══════════════════════════════════════════════════ */
+let planInfo = null;
+let planConfirming = false;
+
+function fmtPlanDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { day:'numeric', month:'long', year:'numeric' });
+}
+
+async function openPlanModal() {
+  if (!authToken) { openAuthModal('register'); return; }
+  planConfirming = false;
+  document.getElementById('plan-msg').textContent = '';
+  document.getElementById('plan-modal').classList.add('show');
+  document.getElementById('plan-cards').innerHTML = '<div class="plan-note">Loading your plan…</div>';
+  await loadPlanInfo();
+}
+function closePlanModal() {
+  document.getElementById('plan-modal').classList.remove('show');
+}
+
+async function loadPlanInfo() {
+  try {
+    const res = await fetch('/api/me', { headers:{ Authorization:'Bearer ' + authToken } });
+    const me = await res.json();
+    if (!res.ok) throw new Error(me.error || 'Could not load your plan');
+    planInfo = me;
+    if (me.plan && me.plan !== authPlan) {
+      authPlan = me.plan;
+      localStorage.setItem('ss_plan', authPlan);
+      renderAuthArea();
+    }
+    renderPlanCards();
+  } catch (e) {
+    document.getElementById('plan-cards').innerHTML = '';
+    document.getElementById('plan-msg').style.color = 'var(--danger)';
+    document.getElementById('plan-msg').textContent = 'Could not load your plan. Please try again.';
+  }
+}
+
+function renderPlanCards() {
+  const me = planInfo || {};
+  const plan = me.plan || 'free';
+  const ends = me.planEndsAt ? fmtPlanDate(me.planEndsAt) : null;
+  const cancelled = plan === 'pro' && !!ends;
+  const renewing = plan === 'pro' && !!me.autoRenews;
+  const owns = !!me.ownsStarter;
+
+  const btn = (label, action, opts) => Object.assign({ label: label, action: action }, opts || {});
+  let free, starter, pro;
+
+  // Free
+  if (plan === 'free') free = btn('Your current plan', null, { disabled:true });
+  else if (plan === 'starter') free = btn('Not needed', null, { disabled:true, note:'Starter is a one time purchase, so it is yours to keep.' });
+  else if (cancelled) free = btn(owns ? 'Not needed' : 'Free after ' + ends, null, { disabled:true, note: owns ? 'You own Starter, so you go back to it when Pro ends.' : 'Your sites stay safe. Pro features switch off when your paid month ends.' });
+  else if (owns) free = btn('Not needed', null, { disabled:true, note:'You own Starter, so you go back to it if you cancel Pro.' });
+  else free = btn('Cancel Pro, go Free', 'cancel', { secondary:true, note:'Pro stays active until the month you paid for ends.' });
+
+  // Starter
+  if (plan === 'starter') starter = btn('Your current plan', null, { disabled:true });
+  else if (plan === 'free') starter = btn('Get Starter, $29', 'checkout:starter');
+  else if (owns) starter = cancelled
+    ? btn('Starts after ' + ends, null, { disabled:true, note:'You own Starter. It takes over when Pro ends.' })
+    : btn('Switch to Starter', 'cancel', { secondary:true, note:'Pro stays active until the month you paid for ends, then you move to Starter.' });
+  else starter = btn('Get Starter, $29', 'checkout:starter', { secondary:true, note:'A one time payment. Pro keeps running until you cancel it.' });
+
+  // Pro
+  if (renewing) pro = btn('Your current plan', null, { disabled:true, note:'Renews monthly.' });
+  else if (cancelled) pro = btn('Reactivate Pro', 'checkout:pro', { note:'No charge until ' + ends + ', when your paid month ends.' });
+  else pro = btn('Get Pro, $12 a month', 'checkout:pro');
+
+  const card = function (key, name, price, feats, b) {
+    const isCurrent = plan === key;
+    let badge = '';
+    if (isCurrent) badge = '<div class="plan-rec-badge" style="background:var(--success);">Current plan</div>';
+    else if (key === 'pro') badge = '<div class="plan-rec-badge">Most Popular</div>';
+    const cls = 'plan-card' + (isCurrent ? ' current' : '') + (key === 'pro' && !isCurrent ? ' recommended' : '');
+    const featHtml = feats.map(function (f) { return '<div class="plan-feat">' + f + '</div>'; }).join('');
+    const btnAttrs = b.disabled ? 'disabled' : 'onclick="planAction(\'' + b.action + '\', this)"';
+    return '<div class="' + cls + '">' + badge +
+      '<div class="plan-card-name">' + name + '</div>' +
+      '<div class="plan-card-price">' + price + '</div>' +
+      '<div class="plan-card-features">' + featHtml + '</div>' +
+      '<button class="btn-upgrade' + (b.secondary ? ' secondary' : '') + '" ' + btnAttrs + '>' + b.label + '</button>' +
+      '<div class="plan-note">' + (b.note || '') + '</div></div>';
+  };
+
+  document.getElementById('plan-cards').innerHTML =
+    card('free', 'Free', '$0', ['1 site', 'Live preview', 'SiteSnap badge on your site'], free) +
+    card('starter', 'Starter', '$29<span> one time</span>', ['No "Built with SiteSnap" badge', 'All 6 design themes', 'Unlimited edits'], starter) +
+    card('pro', 'Pro', '$12<span>/month</span>', ['Everything in Starter', 'Unlimited sites', 'Your own domain', 'Automatic SSL certificate', 'Priority support'], pro);
+}
+
+function setPlanMsg(text, ok) {
+  const el = document.getElementById('plan-msg');
+  el.style.color = ok ? 'var(--success)' : 'var(--danger)';
+  el.textContent = text;
+}
+
+async function planAction(action, btn) {
+  if (action.startsWith('checkout:')) return planCheckout(action.split(':')[1], btn);
+  if (action === 'cancel') return planCancel(btn);
+}
+
+async function planCheckout(plan, btn) {
+  setPlanMsg('', true);
+  const label = btn.textContent;
+  btn.textContent = 'Redirecting…'; btn.classList.add('loading');
+  try {
+    const res = await fetch('/api/checkout/' + plan, { method:'POST', headers:{ Authorization:'Bearer ' + authToken } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Checkout failed');
+    window.location.href = data.url;
+  } catch (e) {
+    btn.textContent = label; btn.classList.remove('loading');
+    setPlanMsg(e.message, false);
+  }
+}
+
+async function planCancel(btn) {
+  const me = planInfo || {};
+  // Stripe customers manage this in the Stripe billing portal
+  if (me.provider === 'stripe') return openBillingPortal();
+  const msgEl = document.getElementById('plan-msg');
+  if (!planConfirming) {
+    planConfirming = true;
+    btn.dataset.label = btn.textContent;
+    btn.textContent = 'Tap again to confirm';
+    setPlanMsg('Pro stays active until the month you already paid for ends. Tap the button again to confirm.', true);
+    msgEl.style.color = 'var(--text-muted)';
+    return;
+  }
+  planConfirming = false;
+  btn.textContent = 'Cancelling…'; btn.classList.add('loading');
+  try {
+    const res = await fetch('/api/billing/cancel', { method:'POST', headers:{ Authorization:'Bearer ' + authToken } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not cancel');
+    await loadPlanInfo();
+    setPlanMsg(data.planEndsAt
+      ? 'Done. You keep Pro until ' + fmtPlanDate(data.planEndsAt) + '. You can reactivate it any time before then.'
+      : 'Done. Your Pro subscription has ended.', true);
+  } catch (e) {
+    btn.textContent = btn.dataset.label || 'Try again'; btn.classList.remove('loading');
+    setPlanMsg(e.message, false);
+  }
+}
+
 async function openBillingPortal() {
   try {
     const res = await fetch('/api/billing/portal', { method:'POST', headers:{ Authorization:`Bearer ${authToken}` } });
@@ -4249,12 +4419,11 @@ async function openAccountModal() {
 
     const planNames = { free: 'Free plan', starter: 'Starter plan', pro: 'Pro plan' };
     document.getElementById('acct-plan-label').textContent = planNames[me.plan] || 'Free plan';
-    document.getElementById('acct-plan-sub').textContent = me.hasPaymentMethod
-      ? 'Payment method on file'
-      : 'No payment method on file';
+    document.getElementById('acct-plan-sub').textContent = me.planEndsAt
+      ? 'Cancelled. You keep Pro until ' + fmtPlanDate(me.planEndsAt)
+      : (me.hasPaymentMethod ? 'Payment method on file' : 'No payment method on file');
 
     document.getElementById('acct-manage-billing-btn').style.display = me.hasPaymentMethod ? '' : 'none';
-    document.getElementById('acct-upgrade-btn').style.display = me.plan === 'pro' ? 'none' : '';
   } catch (e) {
     console.error('SiteSnap: could not load account details:', e);
   }
