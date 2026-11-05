@@ -28,7 +28,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const Stripe = require('stripe');
-const paypal = require('./paypal')({ dbGet, dbRun });
+const paypal = require('./paypal')({ dbGet, dbRun, onProEnded: (userId) => planLimits.onProEnded(userId) });
 
 // ── CLOUDINARY (optional — falls back to local disk if not configured) ─────────
 let cloudinary = null;
@@ -294,8 +294,39 @@ async function sendEmail({ to, subject, html }) {
 const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
 
 // How many websites each plan may own. Editing a site is always allowed —
-// this caps creation only.
+// this caps creation only. (After Pro ends, an account that stays over its limit past the
+// 7 day deadline is restricted, see planlimits.js.)
 const SITE_LIMITS = { free: 1, starter: 1, pro: Infinity };
+
+// Pro ending: domains disconnect the same day, extra sites get 7 days (see planlimits.js)
+const planLimits = require('./planlimits')({
+  dbGet, dbAll, dbRun, siteLimits: SITE_LIMITS,
+  deleteRailwayDomain: (id) => railwayDeleteDomain(id),
+  clearDomainCache: (id) => clearCachedDomainStatus(id),
+});
+
+// PayPal sends nothing when a cancelled customer's paid month runs out, so check every hour
+// and end any Pro plan whose paid period is over (domains disconnect, extra sites get 7 days).
+async function sweepExpiredPro() {
+  try {
+    const rows = await dbAll("SELECT id FROM users WHERE plan = 'pro' AND paypal_subscription_id IS NULL AND paypal_access_until IS NOT NULL AND paypal_access_until <= ?", new Date().toISOString());
+    for (const r of rows) await paypal.expireIfDue(r.id);
+  } catch (e) { console.error('Pro expiry check error:', e.message); }
+}
+setTimeout(sweepExpiredPro, 60 * 1000);
+setInterval(sweepExpiredPro, 60 * 60 * 1000);
+async function blockIfRestricted(req, res, next) {
+  try {
+    const st = await planLimits.state(req.user.id);
+    if (st.restricted) {
+      return res.status(403).json({
+        error: 'Your account is restricted because it has more sites than your plan allows. Delete the extra sites or reactivate Pro to continue.',
+        restricted: true,
+      });
+    }
+    next();
+  } catch (e) { next(e); }
+}
 
 // ── PLANS ──────────────────────────────────────────────────────────────────────
 const PLANS = {
@@ -405,6 +436,7 @@ async function initDb() {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_order_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_access_until TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS over_limit_deadline TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS subdomain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS custom_domain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
@@ -445,6 +477,7 @@ async function initDb() {
     'ALTER TABLE users ADD COLUMN paypal_subscription_id TEXT',
     'ALTER TABLE users ADD COLUMN paypal_order_id TEXT',
     'ALTER TABLE users ADD COLUMN paypal_access_until TEXT',
+    'ALTER TABLE users ADD COLUMN over_limit_deadline TEXT',
     'ALTER TABLE sites ADD COLUMN subdomain TEXT',
     'ALTER TABLE sites ADD COLUMN custom_domain TEXT',
     'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
@@ -618,10 +651,28 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, created_at, password_hash FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, created_at, password_hash FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const { password_hash, stripe_customer_id, paypal_subscription_id, ...safe } = user;
-  res.json({ ...safe, hasPaymentMethod: Boolean(stripe_customer_id || paypal_subscription_id), needsPassword: !isUsablePasswordHash(password_hash) });
+  const { password_hash, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, ...safe } = user;
+  // Used by the "Change plan" screen: is Pro renewing, has it been cancelled (and until when), does the customer own Starter
+  const planEndsAt = !paypal_subscription_id && paypal_access_until && Date.parse(paypal_access_until) > Date.now()
+    ? new Date(paypal_access_until).toISOString() : null;
+  const lim = await planLimits.state(req.user.id);
+  res.json({
+    ...safe,
+    siteCount: lim.owned,
+    siteLimit: lim.siteLimit,
+    customDomains: lim.customDomains,
+    sitesOverLimitBy: lim.excess,
+    overLimitDeadline: lim.overLimitDeadline,
+    restricted: lim.restricted,
+    hasPaymentMethod: Boolean(stripe_customer_id || paypal_subscription_id),
+    needsPassword: !isUsablePasswordHash(password_hash),
+    provider: (paypal_subscription_id || paypal_order_id || paypal_access_until) ? 'paypal' : (stripe_customer_id ? 'stripe' : null),
+    autoRenews: Boolean(paypal_subscription_id) || (safe.plan === 'pro' && Boolean(stripe_customer_id)),
+    planEndsAt,
+    ownsStarter: Boolean(paypal_order_id) || safe.plan === 'starter',
+  });
 });
 
 // ── ACCOUNT: update profile (name / email) ─────────────────────────────────────
@@ -896,7 +947,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 });
 
 // ── SITES ──────────────────────────────────────────────────────────────────────
-app.post('/api/sites', requireAuth, async (req, res) => {
+app.post('/api/sites', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Site data is required' });
   const user = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
@@ -924,7 +975,7 @@ app.post('/api/sites', requireAuth, async (req, res) => {
 });
 
 // ── UPDATE SITE ────────────────────────────────────────────────────────────────
-app.put('/api/sites/:uuid', requireAuth, async (req, res) => {
+app.put('/api/sites/:uuid', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Site data is required' });
   const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
@@ -1120,6 +1171,8 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
   const plan = PLANS[planKey];
 
   if (paypal.enabled) {
+    if (planKey === 'pro' && user.paypal_subscription_id) return res.status(400).json({ error: 'You already have an active Pro subscription.' });
+    if (planKey === 'starter' && (user.plan === 'starter' || user.paypal_order_id)) return res.status(400).json({ error: 'You already own Starter.' });
     try {
       const url = await paypal.startCheckout({ planKey, user, baseUrl: BASE_URL });
       return res.json({ url });
@@ -1158,6 +1211,19 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('Stripe checkout error:', e.message);
     res.status(500).json({ error: 'Could not create checkout session. Check your Stripe key.' });
+  }
+});
+
+// Cancel Pro from the "Change plan" screen (PayPal). Pro stays until the paid month ends.
+app.post('/api/billing/cancel', requireAuth, async (req, res) => {
+  const user = await dbGet('SELECT paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+  if (!user?.paypal_subscription_id) return res.status(400).json({ error: 'There is no active subscription to cancel.' });
+  try {
+    const planEndsAt = await paypal.cancelForUser(req.user.id, user.paypal_subscription_id);
+    res.json({ ok: true, planEndsAt });
+  } catch (e) {
+    console.error('PayPal cancel error:', e.message);
+    res.status(500).json({ error: 'Could not cancel just now. Please try again, or manage it in PayPal.' });
   }
 });
 
@@ -1215,7 +1281,9 @@ async function handleStripeWebhook(req, res) {
     }
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
+      const endedUser = await dbGet('SELECT id FROM users WHERE stripe_subscription_id = ?', sub.id);
       await dbRun("UPDATE users SET plan = 'free', stripe_subscription_id = NULL WHERE stripe_subscription_id = ?", sub.id);
+      if (endedUser) await planLimits.onProEnded(endedUser.id);
       console.log(`User downgraded — subscription cancelled: ${sub.id}`);
       break;
     }

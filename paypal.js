@@ -5,7 +5,7 @@
 
 const crypto = require('crypto');
 
-module.exports = function createPayPal({ dbGet, dbRun }) {
+module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
   const MODE = (process.env.PAYPAL_MODE || 'sandbox').toLowerCase() === 'live' ? 'live' : 'sandbox';
   const API = MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
   const CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
@@ -139,10 +139,12 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
   // Ends a subscription right away (payment suspended or plan expired). The date written to
   // paypal_access_until also stops an old login token from restoring the paid plan.
   async function endNow(subscriptionId) {
+    const who = await dbGet('SELECT id FROM users WHERE paypal_subscription_id = ?', subscriptionId);
     await dbRun(
       "UPDATE users SET plan = CASE WHEN paypal_order_id IS NOT NULL THEN 'starter' ELSE 'free' END, paypal_subscription_id = NULL, paypal_access_until = ? WHERE paypal_subscription_id = ?",
       new Date().toISOString(), subscriptionId
     );
+    if (who && onProEnded) await onProEnded(who.id);
   }
 
   // Drops a cancelled Pro customer back to Starter or Free once the month they paid for is over.
@@ -154,6 +156,7 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
     if (row.plan !== 'pro') return null;
     const next = row.paypal_order_id ? 'starter' : 'free';
     await dbRun('UPDATE users SET plan = ? WHERE id = ?', next, userId);
+    if (onProEnded) await onProEnded(userId);
     console.log(`User ${userId} PayPal Pro period ended, plan set to ${next}`);
     return next;
   }
@@ -190,7 +193,7 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
     }
 
     if (planKey === 'pro') {
-      const sub = await api('POST', '/v1/billing/subscriptions', {
+      const subscriptionBody = {
         plan_id: await proPlanId(),
         custom_id: String(user.id),
         application_context: {
@@ -200,7 +203,14 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
           return_url: returnUrl,
           cancel_url: cancelUrl,
         },
-      }, { 'PayPal-Request-Id': crypto.randomUUID() });
+      };
+      // Re-activating Pro while the paid month is still running: the first payment waits until
+      // that month is over, so the customer is not charged twice for the same days.
+      const paidUntil = !user.paypal_subscription_id && user.paypal_access_until ? Date.parse(user.paypal_access_until) : NaN;
+      if (paidUntil > Date.now() + 10 * 60 * 1000) {
+        subscriptionBody.start_time = new Date(paidUntil).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      }
+      const sub = await api('POST', '/v1/billing/subscriptions', subscriptionBody, { 'PayPal-Request-Id': crypto.randomUUID() });
       const link = (sub.links || []).find(l => l.rel === 'approve');
       if (!link) throw new Error('PayPal did not return an approval link');
       return link.href;
@@ -351,6 +361,27 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
     await api('POST', `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, { reason });
   }
 
+  // Customer cancels Pro from the plan screen. PayPal ends the subscription at once, so we note
+  // the date the paid month runs until and keep Pro until then. Returns that date (or null).
+  async function cancelForUser(userId, subscriptionId) {
+    let until = null;
+    try {
+      const sub = await api('GET', '/v1/billing/subscriptions/' + encodeURIComponent(subscriptionId));
+      until = accessEndFrom(sub);
+    } catch (_) {}
+    await cancelSubscription(subscriptionId);
+    const row = await dbGet('SELECT paypal_access_until FROM users WHERE id = ?', userId);
+    const keepUntil = laterOf(until, row && row.paypal_access_until);
+    if (keepUntil && Date.parse(keepUntil) > Date.now()) {
+      await dbRun('UPDATE users SET paypal_subscription_id = NULL, paypal_access_until = ? WHERE id = ?', keepUntil, userId);
+      console.log('User ' + userId + ' cancelled PayPal Pro (plan stays until ' + keepUntil + ')');
+      return keepUntil;
+    }
+    await endNow(subscriptionId);
+    console.log('User ' + userId + ' cancelled PayPal Pro (ended now)');
+    return null;
+  }
+
   // PayPal has no billing portal like Stripe. Customers manage automatic payments here.
   function manageUrl() {
     return MODE === 'live'
@@ -358,5 +389,5 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
       : 'https://www.sandbox.paypal.com/myaccount/autopay/';
   }
 
-  return { enabled, mode: MODE, startCheckout, confirmReturn, handleWebhook, cancelSubscription, manageUrl, expireIfDue };
+  return { enabled, mode: MODE, startCheckout, confirmReturn, handleWebhook, cancelSubscription, cancelForUser, manageUrl, expireIfDue };
 };
