@@ -1163,9 +1163,16 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
 
 // Billing portal (manage subscription)
 app.post('/api/billing/portal', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT stripe_customer_id, paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT stripe_customer_id, paypal_subscription_id, paypal_access_until FROM users WHERE id = ?', req.user.id);
   if (user?.paypal_subscription_id) return res.json({ url: paypal.manageUrl() });
-  if (!user?.stripe_customer_id) return res.status(400).json({ error: 'No billing account found' });
+  if (!user?.stripe_customer_id) {
+    const until = user?.paypal_access_until ? new Date(user.paypal_access_until) : null;
+    if (until && until.getTime() > Date.now()) {
+      const when = until.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+      return res.status(400).json({ error: 'No billing account found', message: 'Your subscription is cancelled. You keep Pro until ' + when + '.' });
+    }
+    return res.status(400).json({ error: 'No billing account found', message: 'There is no active subscription to manage.' });
+  }
   try {
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
