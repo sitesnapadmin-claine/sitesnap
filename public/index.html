@@ -385,6 +385,11 @@
   .btn-upgrade { width:100%; padding:12px; border-radius:10px; border:none; background:var(--brand); color:white; font-size:14px; font-weight:700; cursor:pointer; margin-top:16px; transition:all 0.2s; }
   .btn-upgrade:hover { background:var(--brand-dark); }
   .btn-upgrade.loading { opacity:0.7; pointer-events:none; }
+  .plan-alert { background:#FEE2E2; border:1.5px solid #FCA5A5; color:#991B1B; border-radius:12px; padding:14px 18px; margin:16px auto 0; max-width:1100px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:14px; line-height:1.5; }
+  .plan-alert strong { font-weight:800; }
+  .plan-alert button { background:#DC2626; color:white; border:none; border-radius:8px; padding:9px 16px; font-weight:700; font-size:13px; cursor:pointer; white-space:nowrap; }
+  .plan-alert button:hover { background:#B91C1C; }
+  #plan-warn { font-size:13px; color:#991B1B; background:#FEF2F2; border-radius:10px; padding:10px 14px; margin-top:16px; line-height:1.5; display:none; }
   .plan-modal { max-width:860px; }
   .plans-grid.three { grid-template-columns:repeat(3,1fr); }
   @media(max-width:760px){.plans-grid.three{grid-template-columns:1fr;}}
@@ -1804,6 +1809,7 @@
 
 <!-- DASHBOARD (shown instead of the landing page once someone is logged in) -->
 <div id="dashboard-view" class="dash-view" style="display:none;">
+  <div id="plan-alert-wrap" style="padding:0 24px;"></div>
   <div class="dash-hero">
     <div class="dash-blob dash-blob1"></div>
     <div class="dash-blob dash-blob2"></div>
@@ -1880,6 +1886,7 @@
     <h3>Your plan</h3>
     <p class="modal-sub">Reactivate Pro, switch to Starter, or stay on Free. Your sites stay safe whichever you choose.</p>
     <div class="plans-grid three" id="plan-cards"><div class="plan-note">Loading your plan…</div></div>
+    <div id="plan-warn"></div>
     <div id="plan-msg"></div>
   </div>
 </div>
@@ -2212,6 +2219,7 @@ async function refreshPlan() {
     const res = await fetch('/api/me', { headers:{ Authorization:`Bearer ${authToken}` } });
     if (!res.ok) return;
     const data = await res.json();
+    renderPlanAlert(data);
     if (data.plan && data.plan !== authPlan) {
       authPlan = data.plan;
       localStorage.setItem('ss_plan', authPlan);
@@ -3914,6 +3922,24 @@ async function startCheckout(plan) {
 let planInfo = null;
 let planConfirming = false;
 
+// Red notice on the dashboard when Pro has ended and the account has more sites than its plan allows
+function renderPlanAlert(me) {
+  const wrap = document.getElementById('plan-alert-wrap');
+  if (!wrap) return;
+  if (!me || !me.sitesOverLimitBy || !me.overLimitDeadline) { wrap.innerHTML = ''; return; }
+  const n = me.sitesOverLimitBy;
+  const sites = n === 1 ? '1 site' : n + ' sites';
+  const limit = me.siteLimit || 1;
+  const limitText = limit === 1 ? 'only one site' : limit + ' sites';
+  let msg;
+  if (me.restricted) {
+    msg = '<strong>Your account is restricted.</strong> Your plan allows ' + limitText + ' and you have ' + me.siteCount + '. Delete ' + sites + ' to keep editing, or reactivate Pro.';
+  } else {
+    msg = '<strong>Your Pro plan has ended.</strong> Your account now allows ' + limitText + '. Delete ' + sites + ' by ' + fmtPlanDate(me.overLimitDeadline) + ', or reactivate Pro to keep them all. After that date your account will be restricted.';
+  }
+  wrap.innerHTML = '<div class="plan-alert"><div>' + msg + '</div><button onclick="openPlanModal()">Reactivate Pro</button></div>';
+}
+
 function fmtPlanDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { day:'numeric', month:'long', year:'numeric' });
 }
@@ -3995,6 +4021,15 @@ function renderPlanCards() {
       '<button class="btn-upgrade' + (b.secondary ? ' secondary' : '') + '" ' + btnAttrs + '>' + b.label + '</button>' +
       '<div class="plan-note">' + (b.note || '') + '</div></div>';
   };
+
+  const warnEl = document.getElementById('plan-warn');
+  const warns = [];
+  if (cancelled) {
+    if (me.customDomains > 0) warns.push('Your custom domain disconnects on ' + ends + '. Your site stays live at its SiteSnap address.');
+    if (me.siteCount > 1) warns.push('Your plan will then allow one site and you have ' + me.siteCount + '. You will have 7 days to delete the extra sites.');
+  }
+  warnEl.innerHTML = warns.join('<br>');
+  warnEl.style.display = warns.length ? 'block' : 'none';
 
   document.getElementById('plan-cards').innerHTML =
     card('free', 'Free', '$0', ['1 site', 'Live preview', 'SiteSnap badge on your site'], free) +
