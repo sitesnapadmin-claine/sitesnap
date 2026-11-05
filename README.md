@@ -140,3 +140,4 @@ sitebuilder-app/
 | SSL / Proxy | Caddy (on-demand TLS) |
 | Frontend | Vanilla HTML/CSS/JS |
 | Deploy | Render / Railway / any Node host |
+
