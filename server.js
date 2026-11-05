@@ -304,6 +304,17 @@ const planLimits = require('./planlimits')({
   deleteRailwayDomain: (id) => railwayDeleteDomain(id),
   clearDomainCache: (id) => clearCachedDomainStatus(id),
 });
+
+// PayPal sends nothing when a cancelled customer's paid month runs out, so check every hour
+// and end any Pro plan whose paid period is over (domains disconnect, extra sites get 7 days).
+async function sweepExpiredPro() {
+  try {
+    const rows = await dbAll("SELECT id FROM users WHERE plan = 'pro' AND paypal_subscription_id IS NULL AND paypal_access_until IS NOT NULL AND paypal_access_until <= ?", new Date().toISOString());
+    for (const r of rows) await paypal.expireIfDue(r.id);
+  } catch (e) { console.error('Pro expiry check error:', e.message); }
+}
+setTimeout(sweepExpiredPro, 60 * 1000);
+setInterval(sweepExpiredPro, 60 * 60 * 1000);
 async function blockIfRestricted(req, res, next) {
   try {
     const st = await planLimits.state(req.user.id);
