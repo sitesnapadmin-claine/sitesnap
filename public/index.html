@@ -1884,7 +1884,7 @@
   <div class="modal upgrade-modal plan-modal">
     <button class="modal-close" onclick="closePlanModal()">×</button>
     <h3>Your plan</h3>
-    <p class="modal-sub">Reactivate Pro, switch to Starter, or stay on Free. Your sites stay safe whichever you choose.</p>
+    <p class="modal-sub" id="plan-sub">Reactivate Pro, switch to Starter, or stay on Free. Your sites stay safe whichever you choose.</p>
     <div class="plans-grid three" id="plan-cards"><div class="plan-note">Loading your plan…</div></div>
     <div id="plan-warn"></div>
     <div id="plan-msg"></div>
@@ -4021,6 +4021,12 @@ function renderPlanCards() {
       '<button class="btn-upgrade' + (b.secondary ? ' secondary' : '') + '" ' + btnAttrs + '>' + b.label + '</button>' +
       '<div class="plan-note">' + (b.note || '') + '</div></div>';
   };
+
+  const subEl = document.getElementById('plan-sub');
+  if (plan === 'free') subEl.textContent = 'Upgrade to Starter or Pro, or stay on Free. Your sites stay safe whichever you choose.';
+  else if (plan === 'starter') subEl.textContent = 'Switch to Pro for unlimited sites, your own domain and priority support, or stay on Starter. Starter is a one time purchase, so there is no need to downgrade. Your sites stay safe either way.';
+  else if (cancelled) subEl.textContent = 'Your Pro plan runs until ' + ends + '. Reactivate Pro to keep it, or switch to Starter or Free. Your sites stay safe whichever you choose.';
+  else subEl.textContent = 'You are on Pro. You can switch to Starter or Free at any time and keep Pro until the month you paid for ends. Your sites stay safe whichever you choose.';
 
   const warnEl = document.getElementById('plan-warn');
   const warns = [];
