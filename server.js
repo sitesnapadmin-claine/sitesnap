@@ -28,6 +28,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const Stripe = require('stripe');
+const paypal = require('./paypal')({ dbGet, dbRun });
 
 // ── CLOUDINARY (optional — falls back to local disk if not configured) ─────────
 let cloudinary = null;
@@ -401,6 +402,8 @@ async function initDb() {
       "ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'free'",
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_order_id TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS subdomain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS custom_domain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
@@ -438,6 +441,8 @@ async function initDb() {
     "ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'",
     'ALTER TABLE users ADD COLUMN stripe_customer_id TEXT',
     'ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT',
+    'ALTER TABLE users ADD COLUMN paypal_subscription_id TEXT',
+    'ALTER TABLE users ADD COLUMN paypal_order_id TEXT',
     'ALTER TABLE sites ADD COLUMN subdomain TEXT',
     'ALTER TABLE sites ADD COLUMN custom_domain TEXT',
     'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
@@ -470,6 +475,7 @@ const upload = multer({
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────────
 // Stripe webhook needs raw body — mount BEFORE express.json()
 app.post('/api/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
+app.post('/api/paypal/webhook', express.raw({ type: 'application/json' }), paypal.handleWebhook);
 
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
@@ -608,10 +614,10 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, created_at, password_hash FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, created_at, password_hash FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const { password_hash, stripe_customer_id, ...safe } = user;
-  res.json({ ...safe, hasPaymentMethod: Boolean(stripe_customer_id), needsPassword: !isUsablePasswordHash(password_hash) });
+  const { password_hash, stripe_customer_id, paypal_subscription_id, ...safe } = user;
+  res.json({ ...safe, hasPaymentMethod: Boolean(stripe_customer_id || paypal_subscription_id), needsPassword: !isUsablePasswordHash(password_hash) });
 });
 
 // ── ACCOUNT: update profile (name / email) ─────────────────────────────────────
@@ -645,7 +651,11 @@ app.put('/api/account/profile', requireAuth, async (req, res) => {
 // survives this call.
 app.delete('/api/account', requireAuth, async (req, res) => {
   try {
-    const user = await dbGet('SELECT stripe_subscription_id FROM users WHERE id = ?', req.user.id);
+    const user = await dbGet('SELECT stripe_subscription_id, paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+    if (user?.paypal_subscription_id) {
+      try { await paypal.cancelSubscription(user.paypal_subscription_id, 'Account deleted'); }
+      catch (e) { console.warn('account delete: PayPal cancel failed (continuing):', e.message); }
+    }
     if (user?.stripe_subscription_id) {
       try { await stripe.subscriptions.cancel(user.stripe_subscription_id); }
       catch (e) { console.warn('account delete: subscription cancel failed (continuing):', e.message); }
@@ -812,6 +822,12 @@ app.get('/api/config', (req, res) => {
 app.post('/api/sync-plan', requireAuth, async (req, res) => {
   try {
     const email = req.user.email;
+    const paypalUser = await dbGet('SELECT plan, paypal_subscription_id, paypal_order_id FROM users WHERE id = ?', req.user.id);
+    if (paypalUser && (paypalUser.paypal_subscription_id || paypalUser.paypal_order_id)) {
+      const keepPlan = paypalUser.plan || 'free';
+      const keepToken = jwt.sign({ id: req.user.id, email: req.user.email, plan: keepPlan }, JWT_SECRET, { expiresIn: '30d' });
+      return res.json({ plan: keepPlan, token: keepToken });
+    }
     let plan = 'free';
     let customerId = null;
     let subscriptionId = null;
@@ -1098,6 +1114,16 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
   const user = await dbGet('SELECT * FROM users WHERE id = ?', req.user.id);
   const plan = PLANS[planKey];
 
+  if (paypal.enabled) {
+    try {
+      const url = await paypal.startCheckout({ planKey, user, baseUrl: BASE_URL });
+      return res.json({ url });
+    } catch (e) {
+      console.error('PayPal checkout error:', e.message);
+      return res.status(500).json({ error: 'Could not start PayPal checkout. Please try again.' });
+    }
+  }
+
   try {
     // Get or create Stripe customer
     let customerId = user.stripe_customer_id;
@@ -1132,7 +1158,8 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
 
 // Billing portal (manage subscription)
 app.post('/api/billing/portal', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT stripe_customer_id FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT stripe_customer_id, paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+  if (user?.paypal_subscription_id) return res.json({ url: paypal.manageUrl() });
   if (!user?.stripe_customer_id) return res.status(400).json({ error: 'No billing account found' });
   try {
     const session = await stripe.billingPortal.sessions.create({
@@ -1379,6 +1406,7 @@ app.get('/preview/:uuid', async (req, res) => {
 app.get('/billing/success', async (req, res) => {
   const plan = req.query.plan || 'starter';
   const sessionId = req.query.session_id;
+  if (paypal.enabled && req.query.provider === 'paypal') await paypal.confirmReturn(req.query);
   if (sessionId) {
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
