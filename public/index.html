@@ -3973,7 +3973,7 @@ function renderPlanCards() {
   else if (owns) starter = cancelled
     ? btn('Starts after ' + ends, null, { disabled:true, note:'You own Starter. It takes over when Pro ends.' })
     : btn('Switch to Starter', 'cancel', { secondary:true, note:'Pro stays active until the month you paid for ends, then you move to Starter.' });
-  else starter = btn('Get Starter, $29', 'checkout:starter', { secondary:true, note:'A one time payment. Pro keeps running until you cancel it.' });
+  else starter = btn('Get Starter, $29', 'checkout:starter', { secondary:true, note: cancelled ? 'You keep Pro until ' + ends + ', then Starter takes over. No need to buy before then.' : 'A one time payment. Pro keeps running until you cancel it.' });
 
   // Pro
   if (renewing) pro = btn('Your current plan', null, { disabled:true, note:'Renews monthly.' });
