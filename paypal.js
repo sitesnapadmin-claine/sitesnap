@@ -5,7 +5,7 @@
 
 const crypto = require('crypto');
 
-module.exports = function createPayPal({ dbGet, dbRun }) {
+module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
   const MODE = (process.env.PAYPAL_MODE || 'sandbox').toLowerCase() === 'live' ? 'live' : 'sandbox';
   const API = MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
   const CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
@@ -139,10 +139,12 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
   // Ends a subscription right away (payment suspended or plan expired). The date written to
   // paypal_access_until also stops an old login token from restoring the paid plan.
   async function endNow(subscriptionId) {
+    const who = await dbGet('SELECT id FROM users WHERE paypal_subscription_id = ?', subscriptionId);
     await dbRun(
       "UPDATE users SET plan = CASE WHEN paypal_order_id IS NOT NULL THEN 'starter' ELSE 'free' END, paypal_subscription_id = NULL, paypal_access_until = ? WHERE paypal_subscription_id = ?",
       new Date().toISOString(), subscriptionId
     );
+    if (who && onProEnded) await onProEnded(who.id);
   }
 
   // Drops a cancelled Pro customer back to Starter or Free once the month they paid for is over.
@@ -154,6 +156,7 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
     if (row.plan !== 'pro') return null;
     const next = row.paypal_order_id ? 'starter' : 'free';
     await dbRun('UPDATE users SET plan = ? WHERE id = ?', next, userId);
+    if (onProEnded) await onProEnded(userId);
     console.log(`User ${userId} PayPal Pro period ended, plan set to ${next}`);
     return next;
   }
