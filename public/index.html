@@ -3892,7 +3892,7 @@ async function openBillingPortal() {
     const res = await fetch('/api/billing/portal', { method:'POST', headers:{ Authorization:`Bearer ${authToken}` } });
     const data = await res.json();
     if (data.url) window.open(data.url, '_blank');
-    else alert('Could not open billing portal.');
+    else alert(data.message || 'Could not open billing portal.');
   } catch(e) { alert('Error opening billing portal.'); }
 }
 
