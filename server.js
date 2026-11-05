@@ -404,6 +404,7 @@ async function initDb() {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_order_id TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_access_until TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS subdomain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS custom_domain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
@@ -443,6 +444,7 @@ async function initDb() {
     'ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT',
     'ALTER TABLE users ADD COLUMN paypal_subscription_id TEXT',
     'ALTER TABLE users ADD COLUMN paypal_order_id TEXT',
+    'ALTER TABLE users ADD COLUMN paypal_access_until TEXT',
     'ALTER TABLE sites ADD COLUMN subdomain TEXT',
     'ALTER TABLE sites ADD COLUMN custom_domain TEXT',
     'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
@@ -529,7 +531,9 @@ async function requireAuth(req, res, next) {
   try {
     // On an ephemeral host the user row can vanish — restore it from the JWT so
     // plan lookups keep working. (Harmless once Postgres makes data durable.)
-    const exists = await dbGet('SELECT id, plan FROM users WHERE id = ?', req.user.id);
+    const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+    // A cancelled PayPal Pro customer keeps Pro until the month they paid for ends, then drops back
+    if (exists && exists.paypal_access_until && !exists.paypal_subscription_id) await paypal.expireIfDue(req.user.id);
     if (!exists) {
       await dbRun(
         insertIgnore('users', 'id, email, password_hash, plan', "?, ?, 'restored', ?"),
@@ -542,7 +546,7 @@ async function requireAuth(req, res, next) {
           "SELECT setval(pg_get_serial_sequence('users','id'), GREATEST((SELECT MAX(id) FROM users), 1))"
         );
       }
-    } else if (req.user.plan && req.user.plan !== 'free' && exists.plan === 'free') {
+    } else if (req.user.plan && req.user.plan !== 'free' && exists.plan === 'free' && !exists.paypal_access_until) {
       // JWT carries a paid plan but DB shows free (post-redeploy wipe) — restore it
       await dbRun('UPDATE users SET plan = ? WHERE id = ?', req.user.plan, req.user.id);
     }
@@ -822,8 +826,9 @@ app.get('/api/config', (req, res) => {
 app.post('/api/sync-plan', requireAuth, async (req, res) => {
   try {
     const email = req.user.email;
-    const paypalUser = await dbGet('SELECT plan, paypal_subscription_id, paypal_order_id FROM users WHERE id = ?', req.user.id);
-    if (paypalUser && (paypalUser.paypal_subscription_id || paypalUser.paypal_order_id)) {
+    await paypal.expireIfDue(req.user.id);
+    const paypalUser = await dbGet('SELECT plan, paypal_subscription_id, paypal_order_id, paypal_access_until FROM users WHERE id = ?', req.user.id);
+    if (paypalUser && (paypalUser.paypal_subscription_id || paypalUser.paypal_order_id || paypalUser.paypal_access_until)) {
       const keepPlan = paypalUser.plan || 'free';
       const keepToken = jwt.sign({ id: req.user.id, email: req.user.email, plan: keepPlan }, JWT_SECRET, { expiresIn: '30d' });
       return res.json({ plan: keepPlan, token: keepToken });
