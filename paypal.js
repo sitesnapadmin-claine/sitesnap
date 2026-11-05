@@ -108,6 +108,56 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
     return true;
   }
 
+  // PayPal ends a subscription the moment it is cancelled, but the customer has paid for the
+  // whole month. We remember when that paid period ends (paypal_access_until) and keep the Pro
+  // plan until then. After that the plan drops back on its own (see expireIfDue).
+  function accessEndFrom(sub) {
+    const info = (sub && sub.billing_info) || {};
+    if (info.next_billing_time && !Number.isNaN(Date.parse(info.next_billing_time))) {
+      return new Date(info.next_billing_time).toISOString();
+    }
+    const last = info.last_payment && info.last_payment.time;
+    if (last && !Number.isNaN(Date.parse(last))) {
+      const d = new Date(last);
+      d.setUTCMonth(d.getUTCMonth() + 1);
+      return d.toISOString();
+    }
+    return null;
+  }
+
+  async function saveAccessUntil(subscriptionId, sub) {
+    const until = accessEndFrom(sub);
+    if (until) await dbRun('UPDATE users SET paypal_access_until = ? WHERE paypal_subscription_id = ?', until, subscriptionId);
+  }
+
+  function laterOf(a, b) {
+    if (!a) return b || null;
+    if (!b) return a;
+    return Date.parse(a) >= Date.parse(b) ? a : b;
+  }
+
+  // Ends a subscription right away (payment suspended or plan expired). The date written to
+  // paypal_access_until also stops an old login token from restoring the paid plan.
+  async function endNow(subscriptionId) {
+    await dbRun(
+      "UPDATE users SET plan = CASE WHEN paypal_order_id IS NOT NULL THEN 'starter' ELSE 'free' END, paypal_subscription_id = NULL, paypal_access_until = ? WHERE paypal_subscription_id = ?",
+      new Date().toISOString(), subscriptionId
+    );
+  }
+
+  // Drops a cancelled Pro customer back to Starter or Free once the month they paid for is over.
+  // Cheap to call: it does nothing unless a cancelled subscription has really run out.
+  async function expireIfDue(userId) {
+    const row = await dbGet('SELECT plan, paypal_subscription_id, paypal_order_id, paypal_access_until FROM users WHERE id = ?', userId);
+    if (!row || row.paypal_subscription_id || !row.paypal_access_until) return null;
+    if (Date.parse(row.paypal_access_until) > Date.now()) return null;
+    if (row.plan !== 'pro') return null;
+    const next = row.paypal_order_id ? 'starter' : 'free';
+    await dbRun('UPDATE users SET plan = ? WHERE id = ?', next, userId);
+    console.log(`User ${userId} PayPal Pro period ended, plan set to ${next}`);
+    return next;
+  }
+
   // ── Starting a checkout ──────────────────────────────────────────────────────
   // Returns the PayPal address the customer should be sent to.
   async function startCheckout({ planKey, user, baseUrl }) {
@@ -191,6 +241,7 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
     // If it is not active yet, the webhook will finish the upgrade.
     if (sub.status !== 'ACTIVE') return null;
     await grant(userId, 'pro', { subscriptionId });
+    await saveAccessUntil(subscriptionId, sub);
     return { userId, plan: 'pro' };
   }
 
@@ -235,18 +286,43 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
       switch (event.event_type) {
         case 'BILLING.SUBSCRIPTION.ACTIVATED': {
           const userId = parseInt(r.custom_id, 10);
-          if (userId && r.plan_id === currentProPlanId()) await grant(userId, 'pro', { subscriptionId: r.id });
+          if (userId && r.plan_id === currentProPlanId()) {
+            await grant(userId, 'pro', { subscriptionId: r.id });
+            await saveAccessUntil(r.id, r);
+          }
           break;
         }
-        case 'BILLING.SUBSCRIPTION.CANCELLED':
+        case 'BILLING.SUBSCRIPTION.CANCELLED': {
+          // The customer has paid for the current month, so keep their plan until it ends
+          let until = accessEndFrom(r);
+          try {
+            const latest = await api('GET', `/v1/billing/subscriptions/${encodeURIComponent(r.id)}`);
+            until = laterOf(accessEndFrom(latest), until);
+          } catch (_) {}
+          const row = await dbGet('SELECT id, paypal_access_until FROM users WHERE paypal_subscription_id = ?', r.id);
+          const keepUntil = laterOf(until, row && row.paypal_access_until);
+          if (row && keepUntil && Date.parse(keepUntil) > Date.now()) {
+            await dbRun('UPDATE users SET paypal_subscription_id = NULL, paypal_access_until = ? WHERE id = ?', keepUntil, row.id);
+            console.log(`PayPal subscription cancelled: ${r.id} (plan stays until ${keepUntil})`);
+          } else {
+            await endNow(r.id);
+            console.log(`PayPal subscription ended: ${r.id}`);
+          }
+          break;
+        }
         case 'BILLING.SUBSCRIPTION.EXPIRED':
         case 'BILLING.SUBSCRIPTION.SUSPENDED': {
           // Back to Starter if they bought it before, otherwise Free
-          await dbRun(
-            "UPDATE users SET plan = CASE WHEN paypal_order_id IS NOT NULL THEN 'starter' ELSE 'free' END, paypal_subscription_id = NULL WHERE paypal_subscription_id = ?",
-            r.id
-          );
+          await endNow(r.id);
           console.log(`PayPal subscription ended: ${r.id}`);
+          break;
+        }
+        case 'PAYMENT.SALE.COMPLETED': {
+          // A monthly payment went through: move the paid until date forward
+          if (r.billing_agreement_id) {
+            const sub = await api('GET', `/v1/billing/subscriptions/${encodeURIComponent(r.billing_agreement_id)}`);
+            await saveAccessUntil(r.billing_agreement_id, sub);
+          }
           break;
         }
         case 'PAYMENT.CAPTURE.COMPLETED': {
@@ -282,5 +358,5 @@ module.exports = function createPayPal({ dbGet, dbRun }) {
       : 'https://www.sandbox.paypal.com/myaccount/autopay/';
   }
 
-  return { enabled, mode: MODE, startCheckout, confirmReturn, handleWebhook, cancelSubscription, manageUrl };
+  return { enabled, mode: MODE, startCheckout, confirmReturn, handleWebhook, cancelSubscription, manageUrl, expireIfDue };
 };
