@@ -28,7 +28,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const Stripe = require('stripe');
-const paypal = require('./paypal')({ dbGet, dbRun });
+const paypal = require('./paypal')({ dbGet, dbRun, onProEnded: (userId) => planLimits.onProEnded(userId) });
 
 // ── CLOUDINARY (optional — falls back to local disk if not configured) ─────────
 let cloudinary = null;
@@ -294,8 +294,28 @@ async function sendEmail({ to, subject, html }) {
 const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
 
 // How many websites each plan may own. Editing a site is always allowed —
-// this caps creation only.
+// this caps creation only. (After Pro ends, an account that stays over its limit past the
+// 7 day deadline is restricted, see planlimits.js.)
 const SITE_LIMITS = { free: 1, starter: 1, pro: Infinity };
+
+// Pro ending: domains disconnect the same day, extra sites get 7 days (see planlimits.js)
+const planLimits = require('./planlimits')({
+  dbGet, dbAll, dbRun, siteLimits: SITE_LIMITS,
+  deleteRailwayDomain: (id) => railwayDeleteDomain(id),
+  clearDomainCache: (id) => clearCachedDomainStatus(id),
+});
+async function blockIfRestricted(req, res, next) {
+  try {
+    const st = await planLimits.state(req.user.id);
+    if (st.restricted) {
+      return res.status(403).json({
+        error: 'Your account is restricted because it has more sites than your plan allows. Delete the extra sites or reactivate Pro to continue.',
+        restricted: true,
+      });
+    }
+    next();
+  } catch (e) { next(e); }
+}
 
 // ── PLANS ──────────────────────────────────────────────────────────────────────
 const PLANS = {
@@ -405,6 +425,7 @@ async function initDb() {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_order_id TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_access_until TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS over_limit_deadline TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS subdomain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS custom_domain TEXT',
       'ALTER TABLE sites ADD COLUMN IF NOT EXISTS railway_domain_id TEXT',
@@ -445,6 +466,7 @@ async function initDb() {
     'ALTER TABLE users ADD COLUMN paypal_subscription_id TEXT',
     'ALTER TABLE users ADD COLUMN paypal_order_id TEXT',
     'ALTER TABLE users ADD COLUMN paypal_access_until TEXT',
+    'ALTER TABLE users ADD COLUMN over_limit_deadline TEXT',
     'ALTER TABLE sites ADD COLUMN subdomain TEXT',
     'ALTER TABLE sites ADD COLUMN custom_domain TEXT',
     'ALTER TABLE sites ADD COLUMN railway_domain_id TEXT',
@@ -624,8 +646,15 @@ app.get('/api/me', requireAuth, async (req, res) => {
   // Used by the "Change plan" screen: is Pro renewing, has it been cancelled (and until when), does the customer own Starter
   const planEndsAt = !paypal_subscription_id && paypal_access_until && Date.parse(paypal_access_until) > Date.now()
     ? new Date(paypal_access_until).toISOString() : null;
+  const lim = await planLimits.state(req.user.id);
   res.json({
     ...safe,
+    siteCount: lim.owned,
+    siteLimit: lim.siteLimit,
+    customDomains: lim.customDomains,
+    sitesOverLimitBy: lim.excess,
+    overLimitDeadline: lim.overLimitDeadline,
+    restricted: lim.restricted,
     hasPaymentMethod: Boolean(stripe_customer_id || paypal_subscription_id),
     needsPassword: !isUsablePasswordHash(password_hash),
     provider: (paypal_subscription_id || paypal_order_id || paypal_access_until) ? 'paypal' : (stripe_customer_id ? 'stripe' : null),
@@ -907,7 +936,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 });
 
 // ── SITES ──────────────────────────────────────────────────────────────────────
-app.post('/api/sites', requireAuth, async (req, res) => {
+app.post('/api/sites', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Site data is required' });
   const user = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
@@ -935,7 +964,7 @@ app.post('/api/sites', requireAuth, async (req, res) => {
 });
 
 // ── UPDATE SITE ────────────────────────────────────────────────────────────────
-app.put('/api/sites/:uuid', requireAuth, async (req, res) => {
+app.put('/api/sites/:uuid', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: 'Site data is required' });
   const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
@@ -1241,7 +1270,9 @@ async function handleStripeWebhook(req, res) {
     }
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
+      const endedUser = await dbGet('SELECT id FROM users WHERE stripe_subscription_id = ?', sub.id);
       await dbRun("UPDATE users SET plan = 'free', stripe_subscription_id = NULL WHERE stripe_subscription_id = ?", sub.id);
+      if (endedUser) await planLimits.onProEnded(endedUser.id);
       console.log(`User downgraded — subscription cancelled: ${sub.id}`);
       break;
     }
