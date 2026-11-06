@@ -4112,7 +4112,7 @@ async function openBillingPortal() {
 ═══════════════════════════════════════════════════ */
 async function syncPlan() {
   const btn = document.querySelector('#restore-plan-wrap button');
-  if (btn) { btn.textContent = 'Checking Stripe…'; btn.disabled = true; }
+  if (btn) { btn.textContent = 'Checking…'; btn.disabled = true; }
   try {
     const res = await fetch('/api/sync-plan', {
       method: 'POST',
