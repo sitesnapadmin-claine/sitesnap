@@ -265,10 +265,10 @@
   .btn-open:hover { border-color:var(--brand); color:var(--brand); }
 
   /* ── AUTH MODAL ─────────────────────────────────── */
-  .modal-overlay { position:fixed; inset:0; background:rgba(10,10,20,0.6); backdrop-filter:blur(4px); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(10,10,20,0.6); backdrop-filter:blur(4px); z-index:1000; display:none; align-items:flex-start; justify-content:center; padding:20px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
   .modal-overlay.show { display:flex; animation:fadeIn 0.2s ease; }
   @keyframes fadeIn { from{opacity:0}to{opacity:1} }
-  .modal { background:white; border-radius:20px; padding:40px; width:100%; max-width:420px; box-shadow:0 24px 64px rgba(0,0,0,0.2); position:relative; animation:slideUp 0.3s ease; }
+  .modal { background:white; border-radius:20px; padding:40px; width:100%; max-width:420px; box-shadow:0 24px 64px rgba(0,0,0,0.2); position:relative; margin:auto; animation:slideUp 0.3s ease; }
   @keyframes slideUp { from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)} }
   .modal-close { position:absolute; top:16px; right:16px; width:32px; height:32px; border-radius:50%; border:1.5px solid var(--border); background:white; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; color:var(--text-muted); transition:all 0.2s; }
   .modal-close:hover { background:var(--surface); }
