@@ -24,7 +24,7 @@ Open **http://localhost:3000** in your browser. That's it.
 - **Shareable links** — Every saved site gets a public URL (`/preview/:uuid`)
 - **My Sites drawer** — View and reopen all your saved sites
 
-**Paid features (Stripe):**
+**Paid features (PayPal):**
 - **Free** — Full wizard + shareable link + "Built with SiteSnap" badge
 - **$29 one-time (Starter)** — Badge removed + `yourbrand.sitesnap.app` subdomain
 - **$12/month (Pro)** — Custom domain (`yourbrand.com`) + everything in Starter
@@ -40,24 +40,32 @@ Create a `.env` file or set these in your hosting dashboard:
 | `JWT_SECRET` | Yes | Random secret for auth tokens. Use `openssl rand -hex 32` |
 | `BASE_URL` | Yes | Your public URL, e.g. `https://sitesnap.app` |
 | `APP_DOMAIN` | No | Your domain without protocol, default: `sitesnap.app` |
-| `STRIPE_SECRET_KEY` | For payments | From [Stripe dashboard](https://dashboard.stripe.com/apikeys) — starts with `sk_live_` |
-| `STRIPE_WEBHOOK_SECRET` | For payments | From Stripe → Developers → Webhooks |
+| `PAYMENT_PROVIDER` | For payments | `paypal` (current). Defaults to `stripe` if not set |
+| `PAYPAL_MODE` | For payments | `live` or `sandbox` |
+| `PAYPAL_CLIENT_ID` | For payments | From PayPal Developer → Apps & Credentials |
+| `PAYPAL_CLIENT_SECRET` | For payments | From the same app. Keep it private |
+| `PAYPAL_WEBHOOK_ID` | For payments | ID of the webhook you add in PayPal (see below) |
+| `PAYPAL_PRO_PLAN_ID` | For payments | ID of the "SiteSnap Pro Monthly" plan ($12 a month) |
 | `PORT` | No | Port to listen on, default: `3000` |
 
 ---
 
-## Stripe Setup (to accept payments)
+## PayPal Setup (to accept payments)
 
-1. Create a [Stripe account](https://stripe.com)
-2. Get your **Secret Key** from Stripe Dashboard → Developers → API Keys
-3. Set `STRIPE_SECRET_KEY` in your environment
-4. Set up a webhook:
-   - Go to Stripe → Developers → Webhooks → Add endpoint
-   - URL: `https://yourdomain.com/api/webhook`
-   - Events to listen for: `checkout.session.completed`, `customer.subscription.deleted`, `invoice.payment_failed`
-   - Copy the **Signing Secret** and set it as `STRIPE_WEBHOOK_SECRET`
+Starter ($29 one time) uses PayPal Orders. Pro ($12 a month) uses PayPal Subscriptions.
 
-> **Testing:** Use `sk_test_...` key and Stripe test cards (e.g. `4242 4242 4242 4242`, any future date, any CVC).
+1. In PayPal Developer, create an app under Apps & Credentials (use Live for real payments).
+2. Set `PAYMENT_PROVIDER=paypal`, `PAYPAL_MODE`, `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`.
+3. Create a Pro plan in PayPal ($12 a month) and set its ID as `PAYPAL_PRO_PLAN_ID`.
+4. Add a webhook to the app:
+   - URL: `https://www.yourdomain.com/api/paypal/webhook` (use the exact address PayPal should reach, including `www` if your site redirects to it, because PayPal does not follow redirects)
+   - Events: Billing subscription activated, cancelled, expired, suspended and payment failed, Payment sale completed, Payment capture completed
+   - Copy the **Webhook ID** and set it as `PAYPAL_WEBHOOK_ID`
+5. Refunds are handled by hand in PayPal. A refund does not change the customer's plan automatically.
+
+> **Stripe is paused.** The Stripe code is still in the project. To switch back, set `PAYMENT_PROVIDER=stripe` and set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (webhook URL `/api/webhook`, events `checkout.session.completed`, `customer.subscription.deleted`, `invoice.payment_failed`).
+
+> **Testing:** Set `PAYPAL_MODE=sandbox` with sandbox credentials and a sandbox buyer account.
 
 ---
 
@@ -117,7 +125,7 @@ sudo systemctl reload caddy
 
 ```
 sitebuilder-app/
-├── server.js          # Express backend — auth, uploads, Stripe, site CRUD, preview
+├── server.js          # Express backend — auth, uploads, payments, site CRUD, preview
 ├── package.json
 ├── Caddyfile          # Caddy reverse proxy config (production)
 ├── sitesnap.db        # SQLite database (auto-created on first run)
@@ -136,7 +144,7 @@ sitebuilder-app/
 | Database | SQLite (better-sqlite3) |
 | Auth | JWT (jsonwebtoken + bcryptjs) |
 | File uploads | Multer (local disk) |
-| Payments | Stripe Checkout + webhooks |
+| Payments | PayPal Orders and Subscriptions + webhooks (Stripe paused) |
 | SSL / Proxy | Caddy (on-demand TLS) |
 | Frontend | Vanilla HTML/CSS/JS |
 | Deploy | Render / Railway / any Node host |
