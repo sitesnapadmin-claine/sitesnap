@@ -4661,9 +4661,9 @@ async function checkDns(uuid) {
     });
     const data = await res.json();
 
-    // Railway-backed status: refresh the per-record badges so the customer can
+    // Railway or Cloudflare backed status: refresh the per-record badges so the customer can
     // see exactly which of the records they still need to fix
-    if (data.source === 'railway') {
+    if (data.source === 'railway' || data.source === 'cloudflare') {
       resultEl.style.color = 'var(--text)';
       renderDnsRecords(data.records || []);
       if (data.live) {
