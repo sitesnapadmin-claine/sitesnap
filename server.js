@@ -1050,7 +1050,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     return res.status(400).json({ error: 'That doesn\'t look like a valid domain. Example: www.yourbrand.com' });
   }
 
-  const site = await dbGet('SELECT user_id, railway_domain_id FROM sites WHERE uuid = ?', req.params.uuid);
+  const site = await dbGet('SELECT user_id, custom_domain, railway_domain_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site || site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
 
   // Root domains can't use CNAME — flagged so the guide can warn about ALIAS/ANAME
@@ -1080,12 +1080,16 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     });
   }
 
+  const oldDomainId = site.railway_domain_id;
+  const sameDomain = Boolean(oldDomainId) && site.custom_domain === clean;
   try {
-    // Replace any domain previously registered for this site so we don't
-    // leave orphaned domains sitting in the Railway project.
-    if (site.railway_domain_id) {
-      try { await railwayDeleteDomain(site.railway_domain_id); } catch (_) {}
-      clearCachedDomainStatus(site.railway_domain_id);
+    // Saving the same domain again: Railway will not accept a duplicate, so the
+    // old registration has to go first. For a different domain we add the new
+    // one first and only remove the old one once that has worked, so a refusal
+    // from Railway never leaves the customer with no domain at all.
+    if (sameDomain) {
+      try { await railwayDeleteDomain(oldDomainId); } catch (_) {}
+      clearCachedDomainStatus(oldDomainId);
     }
 
     const rw = await railwayAddDomain(clean);
@@ -1093,6 +1097,11 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     clearCachedDomainStatus(rw.id);
 
     await dbRun('UPDATE sites SET custom_domain = ?, railway_domain_id = ? WHERE uuid = ?', clean, rw.id, req.params.uuid);
+
+    if (oldDomainId && !sameDomain) {
+      try { await railwayDeleteDomain(oldDomainId); } catch (e) { console.warn('Could not remove old domain from Railway:', e.message); }
+      clearCachedDomainStatus(oldDomainId);
+    }
 
     res.json({
       domain: clean,
@@ -1105,6 +1114,17 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
       return res.status(409).json({ error: 'That domain is already connected to another site' });
     }
     console.error('Railway domain error:', e.message);
+    // The re-save path removed the old registration before failing, so make
+    // sure the database does not keep pointing at something that is gone.
+    if (sameDomain) {
+      try { await dbRun('UPDATE sites SET railway_domain_id = NULL WHERE uuid = ?', req.params.uuid); } catch (_) {}
+    }
+    // Railway's own wording ("upgrade to add more") would confuse a customer who
+    // is already on Pro, so show a friendly message and keep the detail for us.
+    if (/custom domain limit|upgrade to add more/i.test(e.message || '')) {
+      if (Sentry) Sentry.captureException(e);
+      return res.status(503).json({ error: 'We cannot connect new domains at this moment. Your site and your plan are safe. Please try again soon, or email ' + LEGAL_CONTACT_EMAIL + ' and we will get it connected for you.' });
+    }
     res.status(502).json({ error: e.message || 'Could not register the domain. Please try again.' });
   }
 });
