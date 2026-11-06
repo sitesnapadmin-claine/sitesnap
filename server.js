@@ -200,6 +200,25 @@ async function railwayDeleteDomain(domainId) {
   return railwayGraphQL(`mutation ($id: String!) { customDomainDelete(id: $id) }`, { id: domainId });
 }
 
+// ── CLOUDFLARE CUSTOM DOMAINS ──────────────────────────────────────────────────
+// When Cloudflare is configured it takes over customer domains, so Railway's
+// small domain limit no longer applies. Without it the app uses Railway as before.
+const cloudflare = require('./cloudflare')();
+
+// Add a customer domain with whichever provider is set up. Returns the id to
+// store and the DNS records the customer needs to add.
+async function registerDomain(domain) {
+  if (cloudflare.ready) return cloudflare.addDomain(domain);
+  const rw = await railwayAddDomain(domain);
+  return { id: rw.id, records: formatDnsRecords(rw) };
+}
+
+// Ids from Cloudflare start with "cf:", everything else is a Railway id
+async function removeDomain(id) {
+  if (cloudflare.isCloudflareId(id)) return cloudflare.deleteDomain(id);
+  return railwayDeleteDomain(id);
+}
+
 // Railway allows as few as 100 API requests/hour on the lowest tier. Impatient
 // customers clicking "check" repeatedly would burn through that, so cache each
 // domain's status briefly — DNS doesn't propagate faster than this anyway.
@@ -301,7 +320,7 @@ const SITE_LIMITS = { free: 1, starter: 1, pro: Infinity };
 // Pro ending: domains disconnect the same day, extra sites get 7 days (see planlimits.js)
 const planLimits = require('./planlimits')({
   dbGet, dbAll, dbRun, siteLimits: SITE_LIMITS,
-  deleteRailwayDomain: (id) => railwayDeleteDomain(id),
+  deleteRailwayDomain: (id) => removeDomain(id),
   clearDomainCache: (id) => clearCachedDomainStatus(id),
 });
 
@@ -518,7 +537,10 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 // ── DOMAIN ROUTING (check custom domains & subdomains first) ───────────────────
 app.use(async (req, res, next) => {
   try {
-    const host = req.hostname;
+    // Traffic for a customer's own domain arrives through our Cloudflare Worker,
+    // which reports the original domain in a header (ignored unless it carries
+    // the shared secret).
+    const host = cloudflare.originalHost(req.headers) || req.hostname;
 
     // Custom domain: any host that isn't our app domain or localhost
     if (host && !host.endsWith(APP_DOMAIN) && host !== 'localhost' && host !== '127.0.0.1') {
@@ -1058,7 +1080,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
 
   // No Railway credentials configured — save locally and show manual instructions.
   // The domain won't actually route until someone adds it in the Railway dashboard.
-  if (!RAILWAY_READY) {
+  if (!RAILWAY_READY && !cloudflare.ready) {
     try {
       await dbRun('UPDATE sites SET custom_domain = ? WHERE uuid = ?', clean, req.params.uuid);
     } catch (e) {
@@ -1088,18 +1110,18 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     // one first and only remove the old one once that has worked, so a refusal
     // from Railway never leaves the customer with no domain at all.
     if (sameDomain) {
-      try { await railwayDeleteDomain(oldDomainId); } catch (_) {}
+      try { await removeDomain(oldDomainId); } catch (_) {}
       clearCachedDomainStatus(oldDomainId);
     }
 
-    const rw = await railwayAddDomain(clean);
+    const reg = await registerDomain(clean);
     // A freshly registered domain must never report a previous domain's status
-    clearCachedDomainStatus(rw.id);
+    clearCachedDomainStatus(reg.id);
 
-    await dbRun('UPDATE sites SET custom_domain = ?, railway_domain_id = ? WHERE uuid = ?', clean, rw.id, req.params.uuid);
+    await dbRun('UPDATE sites SET custom_domain = ?, railway_domain_id = ? WHERE uuid = ?', clean, reg.id, req.params.uuid);
 
     if (oldDomainId && !sameDomain) {
-      try { await railwayDeleteDomain(oldDomainId); } catch (e) { console.warn('Could not remove old domain from Railway:', e.message); }
+      try { await removeDomain(oldDomainId); } catch (e) { console.warn('Could not remove old domain:', e.message); }
       clearCachedDomainStatus(oldDomainId);
     }
 
@@ -1107,7 +1129,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
       domain: clean,
       isRoot,
       autoProvisioned: true,
-      records: formatDnsRecords(rw),
+      records: reg.records,
     });
   } catch (e) {
     if (isUniqueViolation(e)) {
@@ -1121,7 +1143,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     }
     // Railway's own wording ("upgrade to add more") would confuse a customer who
     // is already on Pro, so show a friendly message and keep the detail for us.
-    if (/custom domain limit|upgrade to add more/i.test(e.message || '')) {
+    if (/custom domain limit|upgrade to add more|custom hostname.*(limit|quota)|quota.*custom hostname/i.test(e.message || '')) {
       if (Sentry) Sentry.captureException(e);
       return res.status(503).json({ error: 'We cannot connect new domains at this moment. Your site and your plan are safe. Please try again soon, or email ' + LEGAL_CONTACT_EMAIL + ' and we will get it connected for you.' });
     }
@@ -1145,7 +1167,24 @@ app.get('/api/domain/dns-check', requireAuth, async (req, res) => {
     // Prefer Railway's own view — it's authoritative about whether the domain
     // is verified and whether the certificate has been issued.
     const site = await dbGet('SELECT railway_domain_id FROM sites WHERE custom_domain = ?', domain);
-    if (RAILWAY_READY && site?.railway_domain_id) {
+    // Cloudflare registrations carry a "cf:" id
+    if (cloudflare.ready && cloudflare.isCloudflareId(site?.railway_domain_id)) {
+      const cached = getCachedDomainStatus(site.railway_domain_id);
+      const cf = cached || await cloudflare.domainStatus(site.railway_domain_id, domain);
+      if (!cached) setCachedDomainStatus(site.railway_domain_id, cf);
+      const routingValid = cf.records.every(r => r.status === 'VALID');
+      return res.json({
+        domain,
+        source: 'cloudflare',
+        records: cf.records,
+        certificateStatus: cf.certificateStatus,
+        pointed: routingValid,
+        live: cf.certificateStatus === 'ISSUED' && routingValid,
+        cached: Boolean(cached),
+      });
+    }
+
+    if (RAILWAY_READY && site?.railway_domain_id && !cloudflare.isCloudflareId(site.railway_domain_id)) {
       const cached = getCachedDomainStatus(site.railway_domain_id);
       const rw = cached || await railwayDomainStatus(site.railway_domain_id);
       if (!cached) setCachedDomainStatus(site.railway_domain_id, rw);
