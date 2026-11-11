@@ -309,6 +309,30 @@ async function sendEmail({ to, subject, html }) {
   return res.json();
 }
 
+// ── NEW SIGN UP ALERT ──────────────────────────────────────────────────────────
+// Emails the owner each time an account is created. It never blocks or fails
+// the sign up itself: if the email can't be sent, the customer still gets in
+// and the problem is only logged.
+const SIGNUP_NOTIFY_EMAIL = (process.env.SIGNUP_NOTIFY_EMAIL || 'sitesnap.admin@gmail.com').trim();
+
+function buildSignupNotification({ name, email }) {
+  name = String(name || '').trim().slice(0, 100);
+  return {
+    to: SIGNUP_NOTIFY_EMAIL,
+    subject: 'You have 1 new SiteSnap sign up!',
+    html: `<p>Someone just signed up to SiteSnap.</p>
+<p><strong>Name:</strong> ${escHtml(name) || 'Not provided'}<br>
+<strong>Email:</strong> ${escHtml(email)}</p>`,
+  };
+}
+
+function notifyNewSignup(user) {
+  if (!EMAIL_READY || !SIGNUP_NOTIFY_EMAIL) return Promise.resolve(false);
+  return sendEmail(buildSignupNotification(user))
+    .then(() => true)
+    .catch(e => { console.error('signup notification error:', e.message); return false; });
+}
+
 // Only the hash is stored, so a database leak can't be used to seize accounts.
 const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
 
@@ -646,6 +670,8 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
     );
     const token = jwt.sign({ id: row.id, email: email.toLowerCase(), plan: 'free' }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, email: email.toLowerCase(), plan: 'free' });
+    // Sent after the reply, so a slow email provider never slows down sign up.
+    notifyNewSignup({ name: req.body.name, email: email.toLowerCase().trim() });
   } catch (e) {
     if (isUniqueViolation(e)) return res.status(409).json({ error: 'That email is already registered' });
     res.status(500).json({ error: 'Registration failed. Please try again.' });
@@ -2240,7 +2266,7 @@ process.on('uncaughtException', (err) => {
 // buildWebsite and the background helpers are exported for the test suite —
 // they're the logic behind what actually ships to a customer's visitors.
 module.exports = {
-  app, initDb, buttonHref,
+  app, initDb, buttonHref, buildSignupNotification,
   buildWebsite, bgConfig, bgIsDark, bgTextVars, bgStyle, hexToRgb, rgba,
 };
 

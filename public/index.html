@@ -1898,6 +1898,10 @@
     <h3 id="modal-title">Create your account</h3>
     <p class="modal-sub" id="modal-sub">Save your site and get a shareable link in seconds.</p>
     <div class="auth-error" id="auth-error"></div>
+    <div class="field" id="auth-name-field">
+      <label for="auth-name">Your name</label>
+      <input type="text" id="auth-name" placeholder="Jane Smith" autocomplete="name" maxlength="100" onkeydown="if(event.key==='Enter')submitAuth()">
+    </div>
     <div class="field">
       <label>Email address</label>
       <input type="email" id="auth-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
@@ -2267,12 +2271,13 @@ function openAuthModal(mode) {
   authMode = mode || 'register';
   updateModalUI();
   document.getElementById('auth-modal').classList.add('show');
-  setTimeout(() => document.getElementById('auth-email').focus(), 100);
+  setTimeout(() => document.getElementById(authMode === 'register' ? 'auth-name' : 'auth-email').focus(), 100);
 }
 
 function closeAuthModal() {
   document.getElementById('auth-modal').classList.remove('show');
   document.getElementById('auth-error').classList.remove('show');
+  document.getElementById('auth-name').value = '';
   document.getElementById('auth-email').value = '';
   document.getElementById('auth-password').value = '';
   pendingSave = false;
@@ -2285,6 +2290,7 @@ function toggleAuthMode() {
 
 function updateModalUI() {
   const isReg = authMode === 'register';
+  document.getElementById('auth-name-field').style.display = isReg ? '' : 'none';
   document.getElementById('modal-title').textContent = isReg ? 'Create your account' : 'Welcome back';
   document.getElementById('modal-sub').textContent = isReg
     ? 'Save your site and get a shareable link in seconds.'
@@ -2301,14 +2307,18 @@ async function submitAuth() {
   const errEl = document.getElementById('auth-error');
   const btn = document.getElementById('btn-auth-submit');
 
-  if (!email || !password) { showAuthError('Please fill in all fields.'); return; }
+  const isReg = authMode === 'register';
+  const name = document.getElementById('auth-name').value.trim();
+
+  if (!email || !password || (isReg && !name)) { showAuthError('Please fill in all fields.'); return; }
 
   btn.disabled = true;
-  btn.textContent = authMode === 'register' ? 'Creating account…' : 'Logging in…';
+  btn.textContent = isReg ? 'Creating account…' : 'Logging in…';
 
   try {
-    const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
-    const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password }) });
+    const endpoint = isReg ? '/api/auth/register' : '/api/auth/login';
+    const payload = isReg ? { name, email, password } : { email, password };
+    const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     const data = await res.json();
 
     if (!res.ok) { showAuthError(data.error || 'Something went wrong. Please try again.'); return; }
