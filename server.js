@@ -316,6 +316,7 @@ async function sendEmail({ to, subject, html }) {
 const SIGNUP_NOTIFY_EMAIL = (process.env.SIGNUP_NOTIFY_EMAIL || 'sitesnap.admin@gmail.com').trim();
 
 function buildSignupNotification({ name, email }) {
+  name = String(name || '').trim().slice(0, 100);
   return {
     to: SIGNUP_NOTIFY_EMAIL,
     subject: 'You have 1 new SiteSnap sign up!',
