@@ -68,4 +68,18 @@ describe('new sign up alert', () => {
     expect(mail.html).toContain('&lt;b&gt;Jo&lt;/b&gt;');
     expect(buildSignupNotification({ email: 'jo@example.com' }).html).toContain('Not provided');
   });
+
+  test('includes the name sent by the sign up form', async () => {
+    await request(app).post('/api/auth/register')
+      .send({ name: 'Jane Smith', email: 'jane@example.com', password: 'hunter22' });
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.html).toContain('<strong>Name:</strong> Jane Smith');
+  });
+
+  test('caps a very long name at 100 characters', () => {
+    const mail = buildSignupNotification({ name: 'x'.repeat(500), email: 'jo@example.com' });
+    expect(mail.html).toContain('x'.repeat(100));
+    expect(mail.html).not.toContain('x'.repeat(101));
+  });
 });
