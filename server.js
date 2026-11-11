@@ -1173,7 +1173,16 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
       if (Sentry) Sentry.captureException(e);
       return res.status(503).json({ error: 'We cannot connect new domains at this moment. Your site and your plan are safe. Please try again soon, or email ' + LEGAL_CONTACT_EMAIL + ' and we will get it connected for you.' });
     }
-    res.status(502).json({ error: e.message || 'Could not register the domain. Please try again.' });
+    // A domain that is already registered (Cloudflare reports it as a duplicate)
+    if (/duplicate|already (exists|registered|in use)/i.test(e.message || '')) {
+      return res.status(409).json({ error: 'That domain is already connected to another site. If it is yours, email ' + LEGAL_CONTACT_EMAIL + ' and we will sort it out.' });
+    }
+    if (/invalid|not a valid/i.test(e.message || '')) {
+      return res.status(400).json({ error: 'That does not look like a valid domain. Please check the spelling and try again.' });
+    }
+    // Anything else: keep the technical detail for us, show the customer a calm message
+    if (Sentry) Sentry.captureException(e);
+    res.status(502).json({ error: 'We could not connect that domain just now. Please try again in a few minutes, or email ' + LEGAL_CONTACT_EMAIL + ' and we will help.' });
   }
 });
 
