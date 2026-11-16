@@ -52,6 +52,37 @@ const app = express();
 // express-rate-limit sees Railway's proxy IP for every request (or throws,
 // depending on version) instead of the real client IP.
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
+
+// Express 4 does not catch errors thrown by async route handlers: the request
+// just hangs and the rejection goes unhandled. Wrap every route handler so a
+// failure always reaches the error handler and the visitor gets a reply.
+function wrapAsync(fn) {
+  if (typeof fn !== 'function' || fn.length === 4) return fn; // leave error handlers alone
+  return function (req, res, next) {
+    try {
+      const out = fn(req, res, next);
+      if (out && typeof out.catch === 'function') out.catch(next);
+    } catch (e) { next(e); }
+  };
+}
+for (const method of ['get', 'post', 'put', 'delete']) {
+  const original = app[method].bind(app);
+  app[method] = (path, ...handlers) => {
+    // app.get('setting') with one argument reads a setting; don't touch that
+    if (handlers.length === 0) return original(path);
+    return original(path, ...handlers.map(wrapAsync));
+  };
+}
+
+// Basic security headers on every response.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
 
 // ── RATE LIMITING (auth endpoints only — brute force / spam prevention) ────────
 // Keyed by IP. Generous enough that a real person retyping a password a few
@@ -78,6 +109,14 @@ const forgotPasswordLimiter = rateLimit({
   message: { error: 'Too many reset requests. Please check your email or try again later.' },
 });
 const PORT = process.env.PORT || 3000;
+// The fallback is for local development only. In production a missing secret
+// would let anyone sign their own login (or admin) tokens, so refuse to start.
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET must be set in production. Refusing to start.');
+}
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+  console.warn('⚠️  JWT_SECRET is shorter than 32 characters. Generate a longer one with: openssl rand -hex 32');
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'sitesnap-dev-secret-change-in-production';
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'sitesnap.app';
@@ -356,8 +395,12 @@ async function sweepExpiredPro() {
     for (const r of rows) await paypal.expireIfDue(r.id);
   } catch (e) { console.error('Pro expiry check error:', e.message); }
 }
-setTimeout(sweepExpiredPro, 60 * 1000);
-setInterval(sweepExpiredPro, 60 * 60 * 1000);
+// Only when actually serving (not when the test suite loads this file), and
+// unref'd so the timers never keep a process alive on their own.
+if (require.main === module) {
+  setTimeout(sweepExpiredPro, 60 * 1000).unref();
+  setInterval(sweepExpiredPro, 60 * 60 * 1000).unref();
+}
 async function blockIfRestricted(req, res, next) {
   try {
     const st = await planLimits.state(req.user.id);
@@ -534,57 +577,128 @@ async function initDb() {
 }
 
 // ── FILE UPLOAD ────────────────────────────────────────────────────────────────
+// Only real photos are accepted. The browser's claimed type is not trusted:
+// the first bytes of the file are checked, and the saved name always gets the
+// extension of the type actually found. SVG is refused because it can carry
+// script. Without these checks an .html file labelled "image/png" was saved
+// and served back from the app's own domain.
+const IMAGE_TYPES = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
+
+function sniffImageType(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) return 'image/png';
+  if (buf.slice(0, 6).toString('ascii') === 'GIF87a' || buf.slice(0, 6).toString('ascii') === 'GIF89a') return 'image/gif';
+  if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  return null;
+}
+
 const storage = multer.diskStorage({
   destination: UPLOADS_DIR,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${uuidv4()}${ext}`);
-  }
+  // No extension until the contents have been checked (see /api/upload)
+  filename: (req, file, cb) => cb(null, `tmp-${uuidv4()}`),
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: 15 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) return cb(null, true);
-    cb(new Error('Only image files are accepted'));
-  }
+    if (IMAGE_TYPES[file.mimetype]) return cb(null, true);
+    cb(new Error('Please upload a JPG, PNG, WebP or GIF image.'));
+  },
 });
+
+// People build their site before creating an account, so uploading can't
+// require a login — but anonymous uploads get a much smaller allowance.
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: (req) => (hasValidToken(req) ? 200 : 30),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many uploads. Please wait a while and try again, or sign in.' },
+});
+
+function hasValidToken(req) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!token) return false;
+  try { jwt.verify(token, JWT_SECRET); return true; } catch { return false; }
+}
 
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────────
 // Stripe webhook needs raw body — mount BEFORE express.json()
-app.post('/api/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
+// The Stripe webhook only exists while Stripe is the payment provider. With
+// PayPal active it is dead code, and an exposed route that can change plans is
+// a liability.
+if (!paypal.enabled) {
+  app.post('/api/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
+}
 app.post('/api/paypal/webhook', express.raw({ type: 'application/json' }), paypal.handleWebhook);
 
 app.use(express.json({ limit: '2mb' }));
-app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  // Uploaded files are only ever images; a sandboxed, script-free policy means
+  // that even a file that slipped through could never run code on this domain.
+  setHeaders: (res) => res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; sandbox"),
+}));
 
 // ── DOMAIN ROUTING (check custom domains & subdomains first) ───────────────────
+// Hosts that belong to SiteSnap itself. A customer must never be able to claim
+// one of these as their "custom domain" or subdomain: if they could, every page
+// and API call on that host would return their site and take the app offline.
+function hostOf(url) {
+  try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
+}
+const OWN_HOSTS = new Set([
+  APP_DOMAIN, hostOf(BASE_URL), CNAME_TARGET, process.env.RAILWAY_PUBLIC_DOMAIN,
+  cloudflare.cnameTarget, 'localhost', '127.0.0.1', '::1',
+].filter(Boolean).map(h => String(h).toLowerCase()));
+
+function isReservedHost(host) {
+  const h = String(host || '').toLowerCase().replace(/\.$/, '');
+  if (!h) return true;
+  if (OWN_HOSTS.has(h)) return true;
+  for (const own of OWN_HOSTS) if (h.endsWith('.' + own)) return true;
+  return /(^|\.)(railway\.app|up\.railway\.app|railway\.internal|localhost)$/.test(h);
+}
+
+// Labels that would look official on our own domain (admin.site-snap.app…)
+const RESERVED_SUBDOMAINS = new Set([
+  'www', 'app', 'api', 'admin', 'administrator', 'mail', 'email', 'smtp', 'ftp',
+  'support', 'help', 'billing', 'pay', 'payments', 'secure', 'login', 'signin',
+  'account', 'accounts', 'dashboard', 'status', 'blog', 'docs', 'dev', 'staging',
+  'test', 'customers', 'cdn', 'static', 'assets', 'ns1', 'ns2', 'sitesnap', 'site-snap',
+]);
+
 app.use(async (req, res, next) => {
   try {
     // Traffic for a customer's own domain arrives through our Cloudflare Worker,
     // which reports the original domain in a header (ignored unless it carries
     // the shared secret).
-    const host = cloudflare.originalHost(req.headers) || req.hostname;
+    const host = (cloudflare.originalHost(req.headers) || req.hostname || '').toLowerCase();
 
-    // Custom domain: any host that isn't our app domain or localhost
-    if (host && !host.endsWith(APP_DOMAIN) && host !== 'localhost' && host !== '127.0.0.1') {
+    // Custom domain: only for hosts that are not our own
+    if (host && !isReservedHost(host)) {
       const site = await dbGet('SELECT uuid, data FROM sites WHERE custom_domain = ?', host);
       if (site) {
         const data = JSON.parse(site.data);
-        return res.send(await buildWebsite(data, site.uuid, `https://${host}`));
+        return sendSite(res, await buildWebsite(data, site.uuid, `https://${host}`));
       }
     }
 
-    // Subdomain: yourbrand.sitesnap.app
-    const parts = host.split('.');
-    if (parts.length >= 3 || (host.endsWith('localhost') && parts.length >= 2)) {
-      const sub = parts[0];
-      if (sub && sub !== 'www' && sub !== 'app') {
-        const site = await dbGet('SELECT uuid, data FROM sites WHERE subdomain = ?', sub);
-        if (site) {
-          const data = JSON.parse(site.data);
-          return res.send(await buildWebsite(data, site.uuid, BASE_URL));
-        }
+    // Subdomain: exactly one label in front of our own domain (yourbrand.site-snap.app),
+    // or brand.localhost while developing
+    const subMatch = host.endsWith('.' + APP_DOMAIN)
+      ? host.slice(0, -(APP_DOMAIN.length + 1))
+      : (host.endsWith('.localhost') ? host.slice(0, -'.localhost'.length) : '');
+    if (subMatch && !subMatch.includes('.') && !RESERVED_SUBDOMAINS.has(subMatch)) {
+      const site = await dbGet('SELECT uuid, data FROM sites WHERE subdomain = ?', subMatch);
+      if (site) {
+        const data = JSON.parse(site.data);
+        return sendSite(res, await buildWebsite(data, site.uuid, BASE_URL));
       }
     }
 
@@ -613,6 +727,10 @@ async function requireAuth(req, res, next) {
     const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id FROM users WHERE id = ?', req.user.id);
     // A cancelled PayPal Pro customer keeps Pro until the month they paid for ends, then drops back
     if (exists && exists.paypal_access_until && !exists.paypal_subscription_id) await paypal.expireIfDue(req.user.id);
+    if (!exists && USE_PG) {
+      // With Postgres a missing user really was deleted — don't rebuild it from a token
+      return res.status(401).json({ error: 'Your account no longer exists. Please sign up again.' });
+    }
     if (!exists) {
       await dbRun(
         insertIgnore('users', 'id, email, password_hash, plan', "?, ?, 'restored', ?"),
@@ -625,7 +743,10 @@ async function requireAuth(req, res, next) {
           "SELECT setval(pg_get_serial_sequence('users','id'), GREATEST((SELECT MAX(id) FROM users), 1))"
         );
       }
-    } else if (req.user.plan && req.user.plan !== 'free' && exists.plan === 'free' && !exists.paypal_access_until) {
+    } else if (!USE_PG && req.user.plan && req.user.plan !== 'free' && exists.plan === 'free' && !exists.paypal_access_until) {
+      // Only on the SQLite fallback, where a redeploy can wipe the database.
+      // With Postgres the database is the truth: trusting the plan inside an
+      // old login token would hand back Pro after a cancellation or refund.
       // JWT carries a paid plan but DB shows free (post-redeploy wipe) — restore it
       await dbRun('UPDATE users SET plan = ? WHERE id = ?', req.user.plan, req.user.id);
     }
@@ -658,15 +779,21 @@ function requirePlan(plan) {
 // ── AUTH ROUTES ────────────────────────────────────────────────────────────────
 app.post('/api/auth/register', registerLimiter, async (req, res) => {
   const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
+  if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.length > 254) {
+    return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
+  }
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length > 200) return res.status(400).json({ error: 'That password is too long' });
   try {
     const hash = await bcrypt.hash(password, 10);
     // RETURNING works in both Postgres and modern SQLite, so the new id comes
     // back the same way regardless of driver.
     const row = await dbGet(
-      'INSERT INTO users (email, password_hash) VALUES (?, ?) RETURNING id',
-      email.toLowerCase().trim(), hash
+      'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?) RETURNING id',
+      email.toLowerCase().trim(), hash, String((req.body || {}).name || '').trim().slice(0, 100) || null
     );
     const token = jwt.sign({ id: row.id, email: email.toLowerCase(), plan: 'free' }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, email: email.toLowerCase(), plan: 'free' });
@@ -680,7 +807,10 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body || {};
-  const user = await dbGet('SELECT * FROM users WHERE email = ?', email?.toLowerCase().trim());
+  if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
+    return res.status(400).json({ error: 'Please enter your email and password' });
+  }
+  const user = await dbGet('SELECT * FROM users WHERE email = ?', email.toLowerCase().trim());
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
   // Recreated-from-token accounts genuinely have no password. Saying "invalid
@@ -967,31 +1097,58 @@ app.post('/api/sync-plan', requireAuth, async (req, res) => {
     res.json({ plan, token: newToken });
   } catch (e) {
     console.error('sync-plan error:', e.message);
-    res.status(500).json({ error: 'Could not sync plan: ' + e.message });
+    res.status(500).json({ error: 'Could not check your plan just now. Please try again.' });
   }
 });
 
 // ── UPLOAD ─────────────────────────────────────────────────────────────────────
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+app.post('/api/upload', uploadLimiter, (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    const msg = err.code === 'LIMIT_FILE_SIZE' ? 'That image is too large. The limit is 15MB.' : (err.message || 'Upload failed');
+    res.status(400).json({ error: msg });
+  });
+}, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  // If Cloudinary is configured, upload there and delete the local temp file
+  // Check what the file really is from its first bytes
+  let realType = null;
+  try {
+    const fh = await fs.promises.open(req.file.path, 'r');
+    const { buffer } = await fh.read(Buffer.alloc(12), 0, 12, 0);
+    await fh.close();
+    realType = sniffImageType(buffer);
+  } catch (_) { realType = null; }
+  if (!realType) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: 'That file is not a valid JPG, PNG, WebP or GIF image.' });
+  }
+
   if (cloudinary) {
     try {
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: 'sitesnap',
+        resource_type: 'image',
         transformation: [{ width: 1600, crop: 'limit', quality: 'auto', fetch_format: 'auto' }]
       });
-      fs.unlink(req.file.path, () => {}); // clean up local temp file
+      fs.unlink(req.file.path, () => {});
       return res.json({ url: result.secure_url });
     } catch (e) {
       console.error('Cloudinary upload error:', e.message);
-      // Fall through to local URL as backup
+      fs.unlink(req.file.path, () => {});
+      // In production the local disk is wiped on every deploy, so a local copy
+      // would quietly break the customer's site later. Better to say so now.
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(502).json({ error: 'We could not save that image just now. Please try again.' });
+      }
+      return res.status(502).json({ error: 'Image storage failed: ' + e.message });
     }
   }
 
-  // Local disk fallback (fine for dev; ephemeral on Render free tier)
-  res.json({ url: `${BASE_URL}/uploads/${req.file.filename}` });
+  // Local disk (development only, or when Cloudinary isn't set up)
+  const finalName = path.basename(req.file.path).replace(/^tmp-/, '') + IMAGE_TYPES[realType];
+  await fs.promises.rename(req.file.path, path.join(UPLOADS_DIR, finalName));
+  res.json({ url: `${BASE_URL}/uploads/${finalName}` });
 });
 
 // ── SITES ──────────────────────────────────────────────────────────────────────
@@ -1073,8 +1230,9 @@ app.post('/api/sites/:uuid/subdomain', requireAuth, requirePlan('starter'), asyn
   }
   const { subdomain } = req.body || {};
   if (!subdomain) return res.status(400).json({ error: 'Subdomain is required' });
-  const clean = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
-  if (!clean) return res.status(400).json({ error: 'Invalid subdomain' });
+  const clean = String(subdomain).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
+  if (!clean || /^-|-$/.test(clean)) return res.status(400).json({ error: 'Invalid subdomain' });
+  if (RESERVED_SUBDOMAINS.has(clean)) return res.status(400).json({ error: 'That name is reserved. Please choose another.' });
 
   const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site || site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
@@ -1092,10 +1250,14 @@ app.post('/api/sites/:uuid/subdomain', requireAuth, requirePlan('starter'), asyn
 app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req, res) => {
   const { domain } = req.body || {};
   if (!domain) return res.status(400).json({ error: 'Domain is required' });
-  const clean = domain.toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const clean = String(domain).toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
 
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(clean)) {
     return res.status(400).json({ error: 'That doesn\'t look like a valid domain. Example: www.yourbrand.com' });
+  }
+
+  if (isReservedHost(clean)) {
+    return res.status(400).json({ error: 'That address belongs to SiteSnap and can\'t be used as a custom domain. Please use your own domain, for example www.yourbrand.com' });
   }
 
   const site = await dbGet('SELECT user_id, custom_domain, railway_domain_id FROM sites WHERE uuid = ?', req.params.uuid);
@@ -1192,7 +1354,9 @@ app.get('/api/domain/dns-check', requireAuth, async (req, res) => {
   try {
     // Prefer Railway's own view — it's authoritative about whether the domain
     // is verified and whether the certificate has been issued.
-    const site = await dbGet('SELECT railway_domain_id FROM sites WHERE custom_domain = ?', domain);
+    const site = await dbGet('SELECT railway_domain_id, user_id FROM sites WHERE custom_domain = ?', String(domain).toLowerCase());
+    // Only report on domains connected to one of your own sites
+    if (!site || site.user_id !== req.user.id) return res.status(404).json({ error: 'That domain is not connected to any of your sites' });
     // Cloudflare registrations carry a "cf:" id
     if (cloudflare.ready && cloudflare.isCloudflareId(site?.railway_domain_id)) {
       const cached = getCachedDomainStatus(site.railway_domain_id);
@@ -1342,9 +1506,13 @@ async function handleStripeWebhook(req, res) {
   let event;
 
   try {
-    event = secret
-      ? stripe.webhooks.constructEvent(req.body, sig, secret)
-      : JSON.parse(req.body.toString());
+    // Never accept an unsigned event: without the secret anyone could post a
+    // fake "payment completed" and upgrade any account for free.
+    if (!secret) {
+      console.error('Stripe webhook received but STRIPE_WEBHOOK_SECRET is not set; rejecting.');
+      return res.status(503).send('Webhook not configured');
+    }
+    event = stripe.webhooks.constructEvent(req.body, sig, secret);
   } catch (e) {
     console.error('Webhook signature error:', e.message);
     return res.status(400).send(`Webhook Error: ${e.message}`);
@@ -1558,7 +1726,7 @@ app.get('/admin', (req, res) => {
 app.get('/preview/:uuid', async (req, res) => {
   const row = await dbGet('SELECT data FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).send(notFoundHtml());
-  res.send(await buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL));
+  sendSite(res, await buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL));
 });
 
 // ── BILLING PAGES ──────────────────────────────────────────────────────────────
@@ -1788,7 +1956,7 @@ async function buildWebsite(s, uuid, baseUrl) {
     .filter(f => f.q && f.a);
   const gallery = (Array.isArray(s.gallery) ? s.gallery : [])
     .slice(0, 30)
-    .map(g => ({ url: ((g && g.url) || '').trim(), caption: ((g && g.caption) || '').trim() }))
+    .map(g => ({ url: safeImageUrl(g && g.url), caption: ((g && g.caption) || '').trim() }))
     .filter(g => g.url);
 
   const sec = s.sections || {};
@@ -1821,7 +1989,7 @@ async function buildWebsite(s, uuid, baseUrl) {
     const c = (s.features && s.features[i]) || {};
     return {
       icon: c.icon || d.icon,
-      iconUrl: (c.iconUrl || '').trim(),
+      iconUrl: safeImageUrl(c.iconUrl),
       title: (c.title || '').trim() || d.title,
       text: (c.text || '').trim() || d.text,
     };
@@ -1862,16 +2030,23 @@ async function buildWebsite(s, uuid, baseUrl) {
     showBadge = !user || user.plan === 'free';
   }
 
-  const logoHtml = s.logoUrl
-    ? `<img src="${s.logoUrl}" alt="${escHtml(name)}" style="max-height:52px;max-width:160px;object-fit:contain;">`
+  // Image addresses come straight from the saved site data, so they must be
+  // checked and escaped like any other text: an unescaped quote here would let
+  // someone inject script into a page served from the app's own domain.
+  const logoUrl = safeImageUrl(s.logoUrl);
+  const heroUrl = safeImageUrl(s.heroUrl);
+  const aboutUrl = safeImageUrl(s.aboutUrl);
+
+  const logoHtml = logoUrl
+    ? `<img src="${escHtml(logoUrl)}" alt=""${escHtml(name)}" style="max-height:52px;max-width:160px;object-fit:contain;">`
     : `<div style="font-size:20px;font-weight:900;letter-spacing:-0.5px;color:${f.navText}">${escHtml(name)}</div>`;
 
-  const heroImg = s.heroUrl
-    ? `<img src="${s.heroUrl}" alt="Hero" style="width:100%;height:100%;object-fit:cover;border-radius:${f.imgRadius};">`
+  const heroImg = heroUrl
+    ? `<img src="${escHtml(heroUrl)}" alt="${escHtml(name)}" style="width:100%;height:100%;object-fit:cover;border-radius:${f.imgRadius};">`
     : `<span style="font-size:64px;">${f.heroEmoji}</span>`;
 
-  const aboutImg = s.aboutUrl
-    ? `<img src="${s.aboutUrl}" alt="About" style="width:100%;height:100%;object-fit:cover;border-radius:${f.imgRadius};">`
+  const aboutImg = aboutUrl
+    ? `<img src="${escHtml(aboutUrl)}" alt="About ${escHtml(name)}" style="width:100%;height:100%;object-fit:cover;border-radius:${f.imgRadius};">`
     : `<span style="font-size:72px;">${f.aboutEmoji}</span>`;
 
   const badge = showBadge ? `
@@ -2093,8 +2268,46 @@ ${badge}
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────
+// Customer sites are plain HTML and CSS with no scripts at all, so the policy
+// can forbid script outright. Even if some field were ever left unescaped,
+// injected code still could not run.
+const SITE_CSP = [
+  "default-src 'none'",
+  "script-src 'none'",
+  "style-src 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com data:",
+  "img-src * data: blob:",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "object-src 'none'",
+].join('; ');
+
+function sendSite(res, html) {
+  res.setHeader('Content-Security-Policy', SITE_CSP);
+  res.send(html);
+}
+
 function escHtml(str) {
-  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Only #rgb / #rrggbb colours are accepted; anything else falls back.
+function safeColor(value, fallback) {
+  const v = String(value || '').trim();
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(v) ? v : fallback;
+}
+
+// Image addresses must be http(s) or a path on this server. Blocks
+// javascript:, data: and anything containing characters that could break out
+// of an HTML attribute or a CSS url().
+function safeImageUrl(value) {
+  const v = String(value || '').trim();
+  if (!v || v.length > 2048) return '';
+  if (/["'<>\\\s()`]/.test(v)) return '';
+  if (/^https?:\/\//i.test(v)) return v;
+  if (v.startsWith('//')) return ''; // protocol-relative: would load from any host
+  if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return ''; // javascript:, data:, etc.
+  return v; // same-site path like /uploads/x.jpg
 }
 
 // ── SECTION BACKGROUNDS (solid colour, or photo + colour overlay) ──────────────
@@ -2113,12 +2326,12 @@ function rgba(hex, alpha) {
 }
 function bgConfig(s, key) {
   const cfg = (s && s.sectionBg && s.sectionBg[key]) || {};
-  const url = String(cfg.url || '').trim();
+  const url = safeImageUrl(cfg.url);
   if (cfg.mode !== 'image' || !url) return null;
   // Strength is the overlay opacity. Clamp to a band that always leaves the
   // photo visible but never lets contrast collapse entirely.
   const strength = Math.max(20, Math.min(95, Number(cfg.strength ?? 65))) / 100;
-  return { url, color: cfg.overlay || '#000000', strength };
+  return { url, color: safeColor(cfg.overlay, '#000000'), strength };
 }
 // Is the tinted result dark enough that text should go light?
 function bgIsDark(cfg) {
@@ -2227,7 +2440,10 @@ function getTheme(s) {
   // preview (getClientTheme's `btnBg`) already does. Buttons must read this,
   // not f.primary, or a customer's chosen button colour never reaches their
   // live site even though the in-progress preview showed it correctly.
-  const p = s.colorPrimary||'#6C47FF', a = s.colorAccent||'#FF6B6B', btn = s.colorButton||p, font = s.fontStyle||'modern', style = s.designStyle||'light-airy';
+  // Colours are written straight into the page's <style> block, so only a
+  // plain hex value is ever allowed through — anything else could close the
+  // style tag and inject script.
+  const p = safeColor(s.colorPrimary, '#6C47FF'), a = safeColor(s.colorAccent, '#FF6B6B'), btn = safeColor(s.colorButton, p), font = s.fontStyle||'modern', style = s.designStyle||'light-airy';
   const fm = {modern:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;700;800",bodyFont:"'Inter',sans-serif",heroWeight:800,heroTracking:'-1px'},elegant:{headFont:"'Playfair Display',serif",fontUrl:"Playfair+Display:wght@400;700",bodyFont:"'Inter',sans-serif",heroWeight:700,heroTracking:'-0.5px'},playful:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;800;900",bodyFont:"'Inter',sans-serif",heroWeight:900,heroTracking:'-2px'}};
   const f = fm[font]||fm.modern;
   const base = {...f,primary:p,accent:a,btnBg:btn};
@@ -2266,7 +2482,7 @@ process.on('uncaughtException', (err) => {
 // buildWebsite and the background helpers are exported for the test suite —
 // they're the logic behind what actually ships to a customer's visitors.
 module.exports = {
-  app, initDb, buttonHref, buildSignupNotification,
+  app, initDb, buttonHref, buildSignupNotification, safeColor, safeImageUrl, isReservedHost,
   buildWebsite, bgConfig, bgIsDark, bgTextVars, bgStyle, hexToRgb, rgba,
 };
 

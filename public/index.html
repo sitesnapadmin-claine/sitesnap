@@ -1340,7 +1340,7 @@
           <div class="mock-win-body">
             <div class="mock-domain">
               <div class="mock-connected">✓ bloomandcoflorals.com is connected and live</div>
-              <div class="domain-section-title">sitesnap.app address (included)</div>
+              <div class="domain-section-title">site-snap.app address (included)</div>
               <div class="domain-row">
                 <input class="domain-text-input" value="bloomandco" readonly>
                 <button class="btn-domain-save">Save</button>
@@ -1353,7 +1353,7 @@
               <div class="mock-dns-table">
                 <div class="mock-dns-row head"><span>Type</span><span>Name</span><span>Value</span></div>
                 <div class="mock-dns-row"><span>A</span><span>@</span><span>76.76.21.21</span></div>
-                <div class="mock-dns-row"><span>CNAME</span><span>www</span><span>sitesnap.app</span></div>
+                <div class="mock-dns-row"><span>CNAME</span><span>www</span><span>site-snap.app</span></div>
               </div>
               <div class="mock-ssl-note">🔒 HTTPS certificate issued automatically — nothing to install.</div>
             </div>
@@ -1746,7 +1746,7 @@
           <div class="mkt-price-desc">To try SiteSnap out</div>
           <ul class="mkt-price-feats">
             <li>1 live site</li>
-            <li>Shareable sitesnap.app link</li>
+            <li>Shareable site-snap.app link</li>
             <li>"Built with SiteSnap" badge</li>
             <li>1 design theme</li>
           </ul>
@@ -1759,7 +1759,7 @@
           <div class="mkt-price-desc">For a polished, badge-free site</div>
           <ul class="mkt-price-feats">
             <li>No "Built with SiteSnap" badge</li>
-            <li>yourbrand.sitesnap.app address</li>
+            <li>yourbrand.site-snap.app address</li>
             <li>All 6 design themes</li>
             <li>Unlimited edits</li>
           </ul>
@@ -1855,7 +1855,7 @@
         <div class="plan-card-price">$29<span> one-time</span></div>
         <div class="plan-card-features">
           <div class="plan-feat">No "Built with SiteSnap" badge</div>
-          <div class="plan-feat subdomain-feature" style="display:none;">yourbrand.sitesnap.app address</div>
+          <div class="plan-feat subdomain-feature" style="display:none;">yourbrand.site-snap.app address</div>
           <div class="plan-feat">All 6 design themes</div>
           <div class="plan-feat">Unlimited edits</div>
         </div>
@@ -2759,8 +2759,8 @@ async function uploadPickedFile(input) {
   if (!file) return null;
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch('/api/upload', { method:'POST', body: fd });
-  if (!res.ok) throw new Error('Upload failed');
+  const res = await fetch('/api/upload', { method:'POST', body: fd, headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
   const data = await res.json();
   return data.url;
 }
@@ -2815,7 +2815,7 @@ async function handleGalleryUpload(i, input) {
     renderGalleryBlocks();
   } catch (e) {
     zone.classList.remove('uploading');
-    stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">Failed — try again</div>`;
+    stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">${escHtml((e && e.message) || 'Failed — try again')}</div>`;
   }
 }
 
@@ -2993,7 +2993,7 @@ async function handleBgUpload(key, input) {
     if (url) bgCfg(key).url = url;
     renderSectionBgConfig();
   } catch (e) {
-    stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">Failed</div>`;
+    stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">${escHtml((e && e.message) || 'Failed')}</div>`;
   }
 }
 function clearBgImage(key, event) {
@@ -3141,9 +3141,9 @@ async function handleUpload(field, event) {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch('/api/upload', { method:'POST', body: formData });
+    const res = await fetch('/api/upload', { method:'POST', body: formData, headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} });
 
-    if (!res.ok) throw new Error('Upload failed');
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
     const data = await res.json();
     state[`${field}Url`] = data.url;
 
@@ -3158,7 +3158,7 @@ async function handleUpload(field, event) {
   } catch (e) {
     zone.classList.remove('uploading');
     stateEl.innerHTML = `<div class="upload-icon">❌</div><div class="upload-sub">Upload failed. Try again.</div>`;
-    document.getElementById('upload-error').textContent = 'Upload failed. Please try a different file.';
+    document.getElementById('upload-error').textContent = (e && e.message && e.message !== 'Upload failed') ? e.message : 'Upload failed. Please try a different file.';
     document.getElementById('upload-error').classList.add('show');
     event.target.value = '';
   }
@@ -4165,7 +4165,7 @@ function renderDomainSection(plan, uuid) {
   if (restoreWrap) restoreWrap.style.display = plan === 'free' ? 'block' : 'none';
   checkNeedsPassword();
 
-  const sfx = subdomainSuffix || 'sitesnap.app';
+  const sfx = subdomainSuffix || 'site-snap.app';
 
   if (plan === 'free') {
     title.textContent = '🌐 Want a custom address?';
