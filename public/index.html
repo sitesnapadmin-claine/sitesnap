@@ -4,6 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SiteSnap — Build Your Website in Minutes</title>
+<meta name="description" content="Answer a few questions and SiteSnap builds a professional website for your small business in minutes. Start free, no credit card needed.">
+<link rel="canonical" href="https://www.site-snap.app/">
+<meta name="theme-color" content="#6C47FF">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SiteSnap">
+<meta property="og:title" content="SiteSnap — Build Your Website in Minutes">
+<meta property="og:description" content="Answer a few questions and get a professional website for your small business. Start free.">
+<meta property="og:url" content="https://www.site-snap.app/">
+<meta property="og:image" content="https://www.site-snap.app/sitesnap-teaser-poster.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SiteSnap — Build Your Website in Minutes">
+<meta name="twitter:description" content="Answer a few questions and get a professional website for your small business. Start free.">
+<meta name="twitter:image" content="https://www.site-snap.app/sitesnap-teaser-poster.jpg">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -74,6 +87,9 @@
   .step { display:none; }
   .step.active { display:block; animation:fadeSlide 0.35s ease; }
   @keyframes fadeSlide { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  }
 
   /* ── HEADINGS ─────────────────────────────────── */
   .step-badge { display:inline-block; background:var(--brand-light); color:var(--brand); font-size:12px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; padding:4px 12px; border-radius:20px; margin-bottom:14px; }
@@ -1870,7 +1886,7 @@
 <!-- UPGRADE MODAL -->
 <div class="modal-overlay" id="upgrade-modal">
   <div class="modal upgrade-modal">
-    <button class="modal-close" onclick="closeUpgradeModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closeUpgradeModal()">×</button>
     <h3>🚀 Unlock more with SiteSnap</h3>
     <p class="modal-sub">Your site is live! Want to remove the SiteSnap badge or add a custom address?</p>
     <div class="plans-grid">
@@ -1907,7 +1923,7 @@
 <!-- CHANGE PLAN MODAL -->
 <div class="modal-overlay" id="plan-modal">
   <div class="modal upgrade-modal plan-modal">
-    <button class="modal-close" onclick="closePlanModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closePlanModal()">×</button>
     <h3>Your plan</h3>
     <p class="modal-sub" id="plan-sub">Reactivate Pro, switch to Starter, or stay on Free. Your sites stay safe whichever you choose.</p>
     <div class="plans-grid three" id="plan-cards"><div class="plan-note">Loading your plan…</div></div>
@@ -1919,7 +1935,7 @@
 <!-- AUTH MODAL -->
 <div class="modal-overlay" id="auth-modal">
   <div class="modal">
-    <button class="modal-close" onclick="closeAuthModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closeAuthModal()">×</button>
     <h3 id="modal-title">Create your account</h3>
     <p class="modal-sub" id="modal-sub">Save your site and get a shareable link in seconds.</p>
     <div class="auth-error" id="auth-error"></div>
@@ -1958,7 +1974,7 @@
 <!-- ACCOUNT MODAL -->
 <div class="modal-overlay" id="account-modal">
   <div class="modal" style="max-width:480px;max-height:86vh;overflow-y:auto;">
-    <button class="modal-close" onclick="closeAccountModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closeAccountModal()">×</button>
     <h3>⚙ My Account</h3>
     <p class="modal-sub">Manage your profile, subscription, and account.</p>
 
@@ -2080,6 +2096,14 @@ fetch('/api/config')
   .then(cfg => {
     subdomainsEnabled = Boolean(cfg.subdomainsEnabled);
     contactFormEnabled = Boolean(cfg.contactFormEnabled);
+    // Privacy-friendly, cookie-free visit counting, switched on by the server's PLAUSIBLE_DOMAIN setting
+    if (cfg.plausibleDomain && !document.getElementById('plausible-js')) {
+      const sc = document.createElement('script');
+      sc.id = 'plausible-js'; sc.defer = true;
+      sc.setAttribute('data-domain', cfg.plausibleDomain);
+      sc.src = 'https://plausible.io/js/script.js';
+      document.head.appendChild(sc);
+    }
     const cfRow = document.getElementById('contact-form-row');
     if (cfRow) cfRow.style.display = contactFormEnabled ? 'flex' : 'none';
     subdomainSuffix = cfg.subdomainSuffix;
@@ -2662,6 +2686,8 @@ function goTo(n) {
   if (n === 5) { document.getElementById('progress-wrap').style.display = 'none'; showStep(5); runGenerating(); }
   else if (n === 6) { showStep(6); renderPreview(); }
   else showStep(n);
+  // Each step starts at the top, instead of mid-card where the last one ended
+  window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
 /* ═══════════════════════════════════════════════════
