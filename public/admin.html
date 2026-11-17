@@ -130,6 +130,11 @@
     </div>
 
     <div class="panel">
+      <div class="panel-head"><h2>Recent payments</h2></div>
+      <div class="panel-body" id="payments-wrap"><div class="loading">Loading…</div></div>
+    </div>
+
+    <div class="panel">
       <div class="panel-head">
         <h2>Customers</h2>
         <input type="text" class="search-box" id="search-box" placeholder="Search by email…">
@@ -215,11 +220,19 @@ async function loadOverview() {
     const grid = document.getElementById('kpi-grid');
     grid.innerHTML = `
       <div class="kpi-card"><div class="label">Total signups</div><div class="value">${o.totalUsers}</div><div class="sub">${o.byPlan.free} free · ${o.byPlan.starter} starter · ${o.byPlan.pro} pro</div></div>
-      <div class="kpi-card mrr"><div class="label">Monthly recurring revenue</div><div class="value">$${o.mrr.toLocaleString()}</div><div class="sub">${o.byPlan.pro} active Pro subscriber${o.byPlan.pro === 1 ? '' : 's'}</div></div>
-      <div class="kpi-card"><div class="label">Starter (one-time) revenue</div><div class="value">$${o.starterRevenue.toLocaleString()}</div><div class="sub">Based on ${o.byPlan.starter} current Starter account${o.byPlan.starter === 1 ? '' : 's'}</div></div>
+      <div class="kpi-card mrr"><div class="label">Money received, last 30 days</div><div class="value">$${(o.revenueLast30Days || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div><div class="sub">$${(o.revenueAllTime || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} all time, after refunds</div></div>
+      <div class="kpi-card"><div class="label">Expected monthly revenue</div><div class="value">$${o.mrr.toLocaleString()}</div><div class="sub">${o.byPlan.pro} active Pro subscriber${o.byPlan.pro === 1 ? '' : 's'}</div></div>
       <div class="kpi-card"><div class="label">Sites created</div><div class="value">${o.totalSites}</div><div class="sub">Across all customers</div></div>
     `;
     renderChart(o.signupsLast30Days);
+    const pay = document.getElementById('payments-wrap');
+    if (pay) {
+      const rows = o.recentPayments || [];
+      pay.innerHTML = rows.length
+        ? `<table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Amount</th></tr></thead><tbody>${rows.map(r =>
+            `<tr><td>${escapeHtml(new Date(r.at).toLocaleString())}</td><td>${escapeHtml(r.email || '—')}</td><td>${escapeHtml(r.kind)}</td><td>${r.amount < 0 ? '−' : ''}$${Math.abs(r.amount).toFixed(2)} ${escapeHtml(r.currency)}</td></tr>`).join('')}</tbody></table>`
+        : '<div class="empty-state">No payments recorded yet. Payments appear here as PayPal reports them.</div>';
+    }
   } catch (e) {
     if (e.message !== 'unauthorized') document.getElementById('kpi-grid').innerHTML = `<div class="empty-state">Couldn't load overview: ${escapeHtml(e.message)}</div>`;
   }

@@ -28,7 +28,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const Stripe = require('stripe');
-const paypal = require('./paypal')({ dbGet, dbRun, onProEnded: (userId) => planLimits.onProEnded(userId) });
+const paypal = require('./paypal')({
+  dbGet, dbRun,
+  onProEnded: (userId) => planLimits.onProEnded(userId),
+  recordPayment: (p) => recordPayment(p),
+  notifyAdmin: (subject, text) => notifyAdmin(subject, text),
+});
 
 // ── CLOUDINARY (optional — falls back to local disk if not configured) ─────────
 let cloudinary = null;
@@ -129,6 +134,8 @@ const CNAME_TARGET =
   process.env.RAILWAY_PUBLIC_DOMAIN ||
   'sitesnap-production-b50b.up.railway.app';
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
+// Stripe is legacy. Its routes only work when it is the chosen provider and has a key.
+const STRIPE_ENABLED = (process.env.PAYMENT_PROVIDER || '').toLowerCase() !== 'paypal' && Boolean(process.env.STRIPE_SECRET_KEY);
 
 // Only this account can read /api/_diag. Unset = the endpoint doesn't exist.
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
@@ -372,6 +379,28 @@ function notifyNewSignup(user) {
     .catch(e => { console.error('signup notification error:', e.message); return false; });
 }
 
+// Alerts the owner about things that need a person, such as a payment dispute
+function notifyAdmin(subject, text) {
+  console.warn('ADMIN ALERT:', subject, '-', text);
+  if (!EMAIL_READY || !SIGNUP_NOTIFY_EMAIL) return Promise.resolve(false);
+  return sendEmail({ to: SIGNUP_NOTIFY_EMAIL, subject, html: `<p>${escHtml(text)}</p>` })
+    .then(() => true)
+    .catch(e => { console.error('admin alert email error:', e.message); return false; });
+}
+
+// The ledger of money actually received (and refunded). PayPal can send the
+// same event more than once, so the external id makes each one count once.
+async function recordPayment({ userId, provider, kind, amount, currency, externalId }) {
+  const cents = Math.round(Number(amount) * 100);
+  if (!externalId || !Number.isFinite(cents)) return;
+  try {
+    await dbRun(insertIgnore('payments', 'user_id, provider, kind, amount_cents, currency, external_id', '?, ?, ?, ?, ?, ?'),
+      userId || null, provider, kind, cents, String(currency || 'USD'), String(externalId));
+  } catch (e) {
+    console.error('recordPayment error:', e.message);
+  }
+}
+
 // Only the hash is stored, so a database leak can't be used to seize accounts.
 const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
 
@@ -530,6 +559,20 @@ async function initDb() {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires BIGINT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_token_hash TEXT',
+      'ALTER TABLE sites ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0',
+      `CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        provider TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        external_id TEXT UNIQUE NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )`,
     ]) { try { await pgPool.query(sql); } catch (e) { console.warn('migration skipped:', e.message); } }
     console.log('✓ Using Postgres — site data survives redeploys');
     return;
@@ -571,6 +614,20 @@ async function initDb() {
     'ALTER TABLE users ADD COLUMN reset_token_hash TEXT',
     'ALTER TABLE users ADD COLUMN reset_expires INTEGER',
     'ALTER TABLE users ADD COLUMN name TEXT',
+    'ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0',
+    'ALTER TABLE users ADD COLUMN email_verified INTEGER',
+    'ALTER TABLE users ADD COLUMN verify_token_hash TEXT',
+    'ALTER TABLE sites ADD COLUMN views INTEGER DEFAULT 0',
+    `CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      provider TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      external_id TEXT UNIQUE NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
   ].forEach(sql => { try { sqliteDb.exec(sql); } catch (_) {} });
   console.warn('⚠️  Using SQLite — on an ephemeral host, saved sites are LOST on every redeploy.');
   console.warn('   Attach a Postgres service so DATABASE_URL is set.');
@@ -724,7 +781,11 @@ async function requireAuth(req, res, next) {
   try {
     // On an ephemeral host the user row can vanish — restore it from the JWT so
     // plan lookups keep working. (Harmless once Postgres makes data durable.)
-    const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+    const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id, token_version FROM users WHERE id = ?', req.user.id);
+    // A password change bumps token_version, which signs out every other device
+    if (exists && Number(req.user.tv || 0) !== Number(exists.token_version || 0)) {
+      return res.status(401).json({ error: 'Your session has ended. Please sign in again.' });
+    }
     // A cancelled PayPal Pro customer keeps Pro until the month they paid for ends, then drops back
     if (exists && exists.paypal_access_until && !exists.paypal_subscription_id) await paypal.expireIfDue(req.user.id);
     if (!exists && USE_PG) {
@@ -753,6 +814,44 @@ async function requireAuth(req, res, next) {
     next();
   } catch (e) {
     next(e);
+  }
+}
+
+// Every login token goes through here. "tv" is the account's token_version:
+// changing the password bumps it, so tokens issued before the change stop working.
+function issueToken({ id, email, plan, tv }) {
+  return jwt.sign({ id, email, plan: plan || 'free', tv: Number(tv || 0) }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+const MIN_PASSWORD = 8;
+function passwordProblem(password) {
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters`;
+  if (password.length > 200) return 'That password is too long';
+  return null;
+}
+
+// ── EMAIL CONFIRMATION ─────────────────────────────────────────────────────────
+// email_verified: 1 confirmed, 0 waiting, NULL for accounts made before this
+// existed (treated as confirmed so nobody old gets nagged). It never blocks
+// using the app; it only shows a reminder and keeps reset emails accurate.
+async function sendVerificationEmail(userId, email) {
+  if (!EMAIL_READY) return false;
+  const token = crypto.randomBytes(32).toString('hex');
+  await dbRun('UPDATE users SET email_verified = 0, verify_token_hash = ? WHERE id = ?', hashToken(token), userId);
+  const link = `${BASE_URL}/verify-email?token=${token}`;
+  try {
+    await sendEmail({
+      to: email,
+      subject: 'Confirm your email for SiteSnap',
+      html: `<p>Welcome to SiteSnap!</p>
+             <p>Please confirm this is your email address so you can always get back into your account:</p>
+             <p><a href="${escHtml(link)}">Confirm my email</a></p>
+             <p>If you didn't create a SiteSnap account, you can ignore this email.</p>`,
+    });
+    return true;
+  } catch (e) {
+    console.error('verification email error:', e.message);
+    return false;
   }
 }
 
@@ -785,8 +884,8 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.length > 254) {
     return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
   }
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  if (password.length > 200) return res.status(400).json({ error: 'That password is too long' });
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
   try {
     const hash = await bcrypt.hash(password, 10);
     // RETURNING works in both Postgres and modern SQLite, so the new id comes
@@ -795,10 +894,12 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
       'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?) RETURNING id',
       email.toLowerCase().trim(), hash, String((req.body || {}).name || '').trim().slice(0, 100) || null
     );
-    const token = jwt.sign({ id: row.id, email: email.toLowerCase(), plan: 'free' }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, email: email.toLowerCase(), plan: 'free' });
+    const cleanEmail = email.toLowerCase().trim();
+    const token = issueToken({ id: row.id, email: cleanEmail, plan: 'free', tv: 0 });
+    res.json({ token, email: cleanEmail, plan: 'free' });
     // Sent after the reply, so a slow email provider never slows down sign up.
-    notifyNewSignup({ name: req.body.name, email: email.toLowerCase().trim() });
+    notifyNewSignup({ name: req.body.name, email: cleanEmail });
+    sendVerificationEmail(row.id, cleanEmail).catch(() => {});
   } catch (e) {
     if (isUniqueViolation(e)) return res.status(409).json({ error: 'That email is already registered' });
     res.status(500).json({ error: 'Registration failed. Please try again.' });
@@ -824,14 +925,14 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
-  const token = jwt.sign({ id: user.id, email: user.email, plan: user.plan || 'free' }, JWT_SECRET, { expiresIn: '30d' });
+  const token = issueToken({ id: user.id, email: user.email, plan: user.plan, tv: user.token_version });
   res.json({ token, email: user.email, plan: user.plan || 'free' });
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, created_at, password_hash FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, created_at, password_hash, email_verified FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const { password_hash, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, ...safe } = user;
+  const { password_hash, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, email_verified, ...safe } = user;
   // Used by the "Change plan" screen: is Pro renewing, has it been cancelled (and until when), does the customer own Starter
   const planEndsAt = !paypal_subscription_id && paypal_access_until && Date.parse(paypal_access_until) > Date.now()
     ? new Date(paypal_access_until).toISOString() : null;
@@ -850,8 +951,55 @@ app.get('/api/me', requireAuth, async (req, res) => {
     autoRenews: Boolean(paypal_subscription_id) || (safe.plan === 'pro' && Boolean(stripe_customer_id)),
     planEndsAt,
     ownsStarter: Boolean(paypal_order_id) || safe.plan === 'starter',
+    // NULL = account from before email confirmation existed
+    emailVerified: email_verified == null || Number(email_verified) === 1,
+    emailConfirmationOn: EMAIL_READY,
   });
 });
+
+const verifyResendLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
+app.post('/api/auth/resend-verification', verifyResendLimiter, requireAuth, async (req, res) => {
+  if (!EMAIL_READY) return res.status(503).json({ error: 'Email isn\'t switched on yet.' });
+  const user = await dbGet('SELECT email, email_verified FROM users WHERE id = ?', req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.email_verified == null || Number(user.email_verified) === 1) return res.json({ ok: true, alreadyVerified: true });
+  const sent = await sendVerificationEmail(req.user.id, user.email);
+  if (!sent) return res.status(502).json({ error: 'Could not send the email just now. Please try again shortly.' });
+  res.json({ ok: true });
+});
+
+app.get('/verify-email', async (req, res) => {
+  const token = String(req.query.token || '');
+  let ok = false;
+  if (token) {
+    const user = await dbGet('SELECT id FROM users WHERE verify_token_hash = ?', hashToken(token));
+    if (user) {
+      await dbRun('UPDATE users SET email_verified = 1, verify_token_hash = NULL WHERE id = ?', user.id);
+      ok = true;
+    }
+  }
+  res.status(ok ? 200 : 400).send(simplePageHtml(
+    ok ? 'Email confirmed' : 'Link not valid',
+    ok ? '✅' : '⚠️',
+    ok ? 'Thanks! Your email address is confirmed.' : 'This confirmation link is invalid or was already used. Sign in and use “Resend email” to get a new one.',
+    'Go to SiteSnap'
+  ));
+});
+
+// A small branded page used for confirmations, billing results and errors
+function simplePageHtml(title, icon, message, buttonLabel = 'Back to SiteSnap', extraHead = '') {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escHtml(title)} — SiteSnap</title>${extraHead}
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#F0EBFF,#EEF2FF);padding:16px}
+.box{text-align:center;background:#fff;border-radius:24px;padding:48px 32px;box-shadow:0 12px 48px rgba(108,71,255,.15);max-width:440px;width:100%}
+.icon{font-size:48px;margin-bottom:16px}h1{font-size:24px;font-weight:800;color:#1A1A2E;margin-bottom:10px}
+p{font-size:15px;color:#4B5563;line-height:1.55;margin-bottom:24px}
+a.btn{display:inline-block;padding:12px 28px;background:#6C47FF;color:#fff;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px}</style>
+</head><body><main class="box"><div class="icon" aria-hidden="true">${icon}</div><h1>${escHtml(title)}</h1>
+<p>${escHtml(message)}</p><a class="btn" href="/">${escHtml(buttonLabel)}</a></main></body></html>`;
+}
 
 // ── ACCOUNT: update profile (name / email) ─────────────────────────────────────
 app.put('/api/account/profile', requireAuth, async (req, res) => {
@@ -862,13 +1010,16 @@ app.put('/api/account/profile', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
   }
   try {
+    const before = await dbGet('SELECT email, plan, token_version FROM users WHERE id = ?', req.user.id);
     await dbRun('UPDATE users SET name = ?, email = ? WHERE id = ?', name, email, req.user.id);
     // Email is part of the JWT payload (used for admin checks and Stripe
     // customer lookups elsewhere), so a changed email needs a fresh token —
     // otherwise the old address would keep acting as the identity until the
     // 30-day token expires.
-    const newToken = jwt.sign({ id: req.user.id, email, plan: req.user.plan }, JWT_SECRET, { expiresIn: '30d' });
+    const newToken = issueToken({ id: req.user.id, email, plan: before?.plan, tv: before?.token_version });
     res.json({ ok: true, name, email, token: newToken });
+    // A new address needs confirming again
+    if (before && before.email !== email) sendVerificationEmail(req.user.id, email).catch(() => {});
   } catch (e) {
     if (isUniqueViolation(e)) return res.status(409).json({ error: 'That email is already in use by another account' });
     console.error('update profile error:', e.message);
@@ -892,6 +1043,11 @@ app.delete('/api/account', requireAuth, async (req, res) => {
     if (user?.stripe_subscription_id) {
       try { await stripe.subscriptions.cancel(user.stripe_subscription_id); }
       catch (e) { console.warn('account delete: subscription cancel failed (continuing):', e.message); }
+    }
+    // Release connected domains so they stop pointing at us and free the quota
+    const domains = await dbAll('SELECT railway_domain_id FROM sites WHERE user_id = ? AND railway_domain_id IS NOT NULL', req.user.id);
+    for (const d of domains) {
+      try { await removeDomain(d.railway_domain_id); } catch (e) { console.warn('account delete: domain removal failed (continuing):', e.message); }
     }
     await dbRun('DELETE FROM sites WHERE user_id = ?', req.user.id);
     await dbRun('DELETE FROM users WHERE id = ?', req.user.id);
@@ -966,13 +1122,14 @@ app.get('/api/_diag', async (req, res) => {
 // Requires a valid session, so possession of the JWT is the proof of identity.
 app.post('/api/auth/set-password', requireAuth, async (req, res) => {
   const { password } = req.body || {};
-  if (!password || String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
   try {
     const hash = await bcrypt.hash(String(password), 10);
-    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', hash, req.user.id);
-    res.json({ ok: true });
+    // Bumping token_version signs out every other device; this one gets a fresh token
+    await dbRun('UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?', hash, req.user.id);
+    const u = await dbGet('SELECT email, plan, token_version FROM users WHERE id = ?', req.user.id);
+    res.json({ ok: true, token: issueToken({ id: req.user.id, email: u.email, plan: u.plan, tv: u.token_version }) });
   } catch (e) {
     console.error('set-password error:', e.message);
     res.status(500).json({ error: 'Could not update password' });
@@ -1019,9 +1176,8 @@ app.post('/api/auth/forgot-password', forgotPasswordLimiter, async (req, res) =>
 app.post('/api/auth/reset-password', forgotPasswordLimiter, async (req, res) => {
   const { token, password } = req.body || {};
   if (!token) return res.status(400).json({ error: 'Reset link is missing its token' });
-  if (!password || String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
   try {
     const user = await dbGet('SELECT id, reset_expires FROM users WHERE reset_token_hash = ?', hashToken(token));
     if (!user) return res.status(400).json({ error: 'This reset link is invalid or has already been used.' });
@@ -1030,7 +1186,9 @@ app.post('/api/auth/reset-password', forgotPasswordLimiter, async (req, res) => 
     }
     const hash = await bcrypt.hash(String(password), 10);
     // Clearing the token makes the link single-use
-    await dbRun('UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_expires = NULL WHERE id = ?',
+    // Also signs out every device, in case someone else had access. Clicking the
+    // emailed link proves the address, so it counts as a confirmation too.
+    await dbRun('UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_expires = NULL, token_version = COALESCE(token_version, 0) + 1, email_verified = 1 WHERE id = ?',
       hash, user.id);
     res.json({ ok: true });
   } catch (e) {
@@ -1059,8 +1217,14 @@ app.post('/api/sync-plan', requireAuth, async (req, res) => {
     const paypalUser = await dbGet('SELECT plan, paypal_subscription_id, paypal_order_id, paypal_access_until FROM users WHERE id = ?', req.user.id);
     if (paypalUser && (paypalUser.paypal_subscription_id || paypalUser.paypal_order_id || paypalUser.paypal_access_until)) {
       const keepPlan = paypalUser.plan || 'free';
-      const keepToken = jwt.sign({ id: req.user.id, email: req.user.email, plan: keepPlan }, JWT_SECRET, { expiresIn: '30d' });
+      const keepToken = issueToken({ id: req.user.id, email: req.user.email, plan: keepPlan, tv: req.user.tv });
       return res.json({ plan: keepPlan, token: keepToken });
+    }
+    if (!STRIPE_ENABLED) {
+      // PayPal is the payment provider: our database is already the truth
+      const row = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
+      const plan = (row && row.plan) || 'free';
+      return res.json({ plan, token: issueToken({ id: req.user.id, email: req.user.email, plan, tv: req.user.tv }) });
     }
     let plan = 'free';
     let customerId = null;
@@ -1093,7 +1257,7 @@ app.post('/api/sync-plan', requireAuth, async (req, res) => {
     }
 
     // Issue a new JWT with plan baked in so future redeployments preserve it
-    const newToken = jwt.sign({ id: req.user.id, email: req.user.email, plan }, JWT_SECRET, { expiresIn: '30d' });
+    const newToken = issueToken({ id: req.user.id, email: req.user.email, plan, tv: req.user.tv });
     res.json({ plan, token: newToken });
   } catch (e) {
     console.error('sync-plan error:', e.message);
@@ -1152,9 +1316,19 @@ app.post('/api/upload', uploadLimiter, (req, res, next) => {
 });
 
 // ── SITES ──────────────────────────────────────────────────────────────────────
+// Sites hold text and image links only (images are uploaded separately), so
+// anything far bigger than a real site is refused rather than stored.
+const MAX_SITE_BYTES = 300 * 1024;
+function siteDataProblem(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return 'Site data is required';
+  if (Buffer.byteLength(JSON.stringify(data)) > MAX_SITE_BYTES) return 'This site has too much content to save. Please shorten some text or remove some photos.';
+  return null;
+}
+
 app.post('/api/sites', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
-  if (!data) return res.status(400).json({ error: 'Site data is required' });
+  const dataProblem = siteDataProblem(data);
+  if (dataProblem) return res.status(400).json({ error: dataProblem });
   const user = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
   const plan = user?.plan || 'free';
 
@@ -1182,7 +1356,8 @@ app.post('/api/sites', requireAuth, blockIfRestricted, async (req, res) => {
 // ── UPDATE SITE ────────────────────────────────────────────────────────────────
 app.put('/api/sites/:uuid', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
-  if (!data) return res.status(400).json({ error: 'Site data is required' });
+  const dataProblem = siteDataProblem(data);
+  if (dataProblem) return res.status(400).json({ error: dataProblem });
   const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site) return res.status(404).json({ error: 'Site not found' });
   if (site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
@@ -1214,9 +1389,13 @@ app.get('/api/sites/:uuid', async (req, res) => {
 });
 
 app.delete('/api/sites/:uuid', requireAuth, async (req, res) => {
-  const row = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
+  const row = await dbGet('SELECT user_id, railway_domain_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
+  // Release the connected domain so it stops pointing at us and frees the quota
+  if (row.railway_domain_id) {
+    try { await removeDomain(row.railway_domain_id); } catch (e) { console.warn('site delete: domain removal failed (continuing):', e.message); }
+  }
   await dbRun('DELETE FROM sites WHERE uuid = ?', req.params.uuid);
   res.json({ ok: true });
 });
@@ -1431,6 +1610,7 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
     }
   }
 
+  if (!STRIPE_ENABLED) return res.status(503).json({ error: 'Payments are not available right now. Please try again later.' });
   try {
     // Get or create Stripe customer
     let customerId = user.stripe_customer_id;
@@ -1488,6 +1668,7 @@ app.post('/api/billing/portal', requireAuth, async (req, res) => {
     }
     return res.status(400).json({ error: 'No billing account found', message: 'There is no active subscription to manage.' });
   }
+  if (!STRIPE_ENABLED) return res.status(400).json({ error: 'No billing account found', message: 'There is no active subscription to manage.' });
   try {
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
@@ -1641,7 +1822,9 @@ function requireAdmin(req, res, next) {
 app.post('/api/admin/login', adminLoginLimiter, (req, res) => {
   if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin dashboard is not configured yet (ADMIN_PASSWORD not set).' });
   const { password } = req.body || {};
-  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Incorrect password' });
+  const given = crypto.createHash('sha256').update(String(password || '')).digest();
+  const wanted = crypto.createHash('sha256').update(ADMIN_PASSWORD).digest();
+  if (!crypto.timingSafeEqual(given, wanted)) return res.status(401).json({ error: 'Incorrect password' });
   const token = jwt.sign({ admin: true }, JWT_SECRET, { expiresIn: '12h' });
   res.json({ token });
 });
@@ -1663,6 +1846,14 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
     const mrr = counts.pro * ((PLANS.pro?.price || 1200) / 100);
     const starterRevenue = counts.starter * ((PLANS.starter?.price || 2900) / 100);
 
+    // Money actually received, from the payments ledger (refunds are negative)
+    const sinceSql = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
+    const allTime = await dbGet('SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments');
+    const last30 = await dbGet(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments WHERE created_at >= ${sinceSql}`);
+    const recentPayments = await dbAll(
+      'SELECT p.kind, p.amount_cents, p.currency, p.created_at, u.email FROM payments p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.created_at DESC LIMIT 20'
+    );
+
     const sinceClause = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
     const signupRows = await dbAll(
       `SELECT DATE(created_at) as day, COUNT(*) as count FROM users WHERE created_at >= ${sinceClause} GROUP BY DATE(created_at) ORDER BY day`
@@ -1674,6 +1865,9 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       totalSites,
       mrr,
       starterRevenue,
+      revenueAllTime: Number(allTime?.c || 0) / 100,
+      revenueLast30Days: Number(last30?.c || 0) / 100,
+      recentPayments: recentPayments.map(r => ({ kind: r.kind, amount: Number(r.amount_cents) / 100, currency: r.currency, at: r.created_at, email: r.email || null })),
       signupsLast30Days: signupRows.map(r => ({ day: r.day, count: Number(r.count) })),
     });
   } catch (e) {
@@ -1737,19 +1931,21 @@ app.get('/preview/:uuid', async (req, res) => {
 // truth for later events (renewals, cancellations) but is no longer a single
 // point of failure for the very first upgrade.
 app.get('/billing/success', async (req, res) => {
-  const plan = req.query.plan || 'starter';
+  const wanted = PLANS[req.query.plan] ? req.query.plan : null;
+  let confirmed = null; // { plan } once we know the payment really went through
+  if (paypal.enabled && req.query.provider === 'paypal') confirmed = await paypal.confirmReturn(req.query);
   const sessionId = req.query.session_id;
-  if (paypal.enabled && req.query.provider === 'paypal') await paypal.confirmReturn(req.query);
-  if (sessionId) {
+  if (sessionId && STRIPE_ENABLED) {
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       const userId = parseInt(session.metadata?.userId);
       const sessionPlan = session.metadata?.plan;
-      if (session.payment_status === 'paid' && userId && sessionPlan) {
+      if (session.payment_status === 'paid' && userId && PLANS[sessionPlan]) {
         await dbRun('UPDATE users SET plan = ? WHERE id = ?', sessionPlan, userId);
         if (session.subscription) {
           await dbRun('UPDATE users SET stripe_subscription_id = ? WHERE id = ?', session.subscription, userId);
         }
+        confirmed = { plan: sessionPlan };
         console.log(`✓ User ${userId} upgraded to ${sessionPlan} (confirmed via success redirect)`);
       }
     } catch (e) {
@@ -1757,32 +1953,22 @@ app.get('/billing/success', async (req, res) => {
       // Fall through — the webhook may still land and fix this up.
     }
   }
-  const planLabel = PLANS[plan]?.name || 'Starter';
-  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Welcome to ${planLabel}!</title>
-<meta http-equiv="refresh" content="4; url=/">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#F0EBFF,#EEF2FF);}
-.box{text-align:center;background:white;border-radius:24px;padding:56px 48px;box-shadow:0 12px 48px rgba(108,71,255,0.15);max-width:420px;width:90%;}
-.icon{font-size:56px;margin-bottom:20px;}h1{font-size:26px;font-weight:800;color:#1A1A2E;margin-bottom:10px;}
-p{font-size:15px;color:#6B7280;line-height:1.5;margin-bottom:24px;}
-.badge{display:inline-block;background:#EEE9FF;color:#6C47FF;font-size:13px;font-weight:700;padding:6px 16px;border-radius:20px;margin-bottom:8px;}
-a{display:inline-block;padding:12px 32px;background:#6C47FF;color:white;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px;}
-</style></head><body><div class="box">
-<div class="badge">Plan activated</div>
-<div class="icon">🎉</div>
-<h1>Welcome to ${planLabel}!</h1>
-<p>Your account has been upgraded. Redirecting you back to the app in a moment…</p>
-<a href="/">Go to my account →</a>
-</div></body></html>`);
+  if (confirmed) {
+    const label = PLANS[confirmed.plan]?.name || 'your new plan';
+    return res.send(simplePageHtml(`Welcome to ${label}!`, '🎉',
+      'Your payment is confirmed and your account has been upgraded. Taking you back to the app…',
+      'Go to my account', '<meta http-equiv="refresh" content="5; url=/">'));
+  }
+  // Not confirmed yet: PayPal can take a minute to tell us. Never claim success early.
+  const label = wanted ? PLANS[wanted].name : 'your plan';
+  res.send(simplePageHtml('Confirming your payment…', '⏳',
+    `Thanks! We're waiting for PayPal to confirm your ${label} payment. This usually takes under a minute. Your account updates on its own, so you can head back now. If it hasn't changed within an hour, email ${LEGAL_CONTACT_EMAIL}.`,
+    'Back to my account', '<meta http-equiv="refresh" content="20">'));
 });
 
 app.get('/billing/cancel', (req, res) => {
-  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Checkout cancelled</title>
-<meta http-equiv="refresh" content="3; url=/">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f9fafb;}
-.box{text-align:center;padding:48px;}.icon{font-size:40px;margin-bottom:16px;}h1{font-size:20px;color:#1A1A2E;margin-bottom:8px;}p{color:#6B7280;font-size:14px;}</style>
-</head><body><div class="box"><div class="icon">👋</div><h1>No worries!</h1><p>Checkout cancelled. Taking you back…</p></div></body></html>`);
+  res.send(simplePageHtml('Checkout cancelled', '👋', 'No worries, you weren\'t charged. Taking you back…', 'Back to SiteSnap',
+    '<meta http-equiv="refresh" content="3; url=/">'));
 });
 
 // ── LEGAL PAGES ─────────────────────────────────────────────────────────────────

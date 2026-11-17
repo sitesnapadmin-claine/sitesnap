@@ -5,7 +5,7 @@
 
 const crypto = require('crypto');
 
-module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
+module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment = async () => {}, notifyAdmin = async () => {} }) {
   const MODE = (process.env.PAYPAL_MODE || 'sandbox').toLowerCase() === 'live' ? 'live' : 'sandbox';
   const API = MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
   const CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
@@ -238,6 +238,7 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
     if (!userId || key !== 'starter') return null;
     if (cap?.status !== 'COMPLETED' || cap?.amount?.value !== STARTER_PRICE || cap?.amount?.currency_code !== 'USD') return null;
     await grant(userId, 'starter', { orderId });
+    await recordPayment({ userId, provider: 'paypal', kind: 'starter', amount: cap.amount.value, currency: cap.amount.currency_code, externalId: cap.id });
     return { userId, plan: 'starter' };
   }
 
@@ -360,6 +361,8 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
           if (r.billing_agreement_id) {
             const sub = await api('GET', `/v1/billing/subscriptions/${encodeURIComponent(r.billing_agreement_id)}`);
             await saveAccessUntil(r.billing_agreement_id, sub);
+            const userId = parseInt(sub.custom_id, 10) || null;
+            if (r.amount) await recordPayment({ userId, provider: 'paypal', kind: 'pro', amount: r.amount.total, currency: r.amount.currency, externalId: r.id });
           }
           break;
         }
@@ -368,18 +371,29 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded }) {
           const userId = parseInt(uid, 10);
           if (userId && key === 'starter' && r.amount?.value === STARTER_PRICE && r.amount?.currency_code === 'USD') {
             await grant(userId, 'starter', { orderId: r.supplementary_data?.related_ids?.order_id });
+            await recordPayment({ userId, provider: 'paypal', kind: 'starter', amount: r.amount.value, currency: r.amount.currency_code, externalId: r.id });
           }
           break;
         }
         case 'PAYMENT.CAPTURE.REFUNDED':
+          if (r.amount) await recordPayment({ provider: 'paypal', kind: 'refund', amount: -Number(r.amount.value), currency: r.amount.currency_code, externalId: r.id });
           await handleStarterRefund(r);
           break;
-        case 'PAYMENT.SALE.REFUNDED':
+        case 'PAYMENT.SALE.REFUNDED': {
           // A refunded monthly payment may be goodwill, so Pro is not cut off automatically
-          console.warn('PayPal subscription payment refunded, review this customer by hand:', r.id);
+          const amt = r.amount && (r.amount.total || r.amount.value);
+          if (amt) await recordPayment({ provider: 'paypal', kind: 'refund', amount: -Number(amt), currency: r.amount.currency || r.amount.currency_code, externalId: r.id });
+          await notifyAdmin('SiteSnap: a Pro payment was refunded', `PayPal refunded a monthly Pro payment (${r.id}). Pro was left on; check whether to cancel it.`);
+          break;
+        }
+        case 'CUSTOMER.DISPUTE.CREATED':
+          // A chargeback or PayPal claim needs a person to respond before PayPal's deadline
+          await notifyAdmin('SiteSnap: a customer opened a PayPal dispute',
+            `Dispute ${r.dispute_id || r.id} was opened (reason: ${r.reason || 'unknown'}). Respond in the PayPal Resolution Center before the deadline.`);
           break;
         case 'BILLING.SUBSCRIPTION.PAYMENT.FAILED':
           console.warn('PayPal payment failed for subscription:', r.id);
+          await notifyAdmin('SiteSnap: a Pro renewal payment failed', `PayPal could not take the monthly payment for subscription ${r.id}. PayPal retries automatically.`);
           break;
         default:
           break;

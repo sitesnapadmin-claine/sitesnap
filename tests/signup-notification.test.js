@@ -34,9 +34,14 @@ describe('new sign up alert', () => {
       .send({ email: 'New.Customer@Example.com', password: 'hunter22' });
     expect(res.status).toBe(200);
     await settle();
+    // One alert to the owner, one confirmation email to the customer
+    expect(sent).toHaveLength(2);
+    const confirm = sent.find(m => m.body.to[0] === 'new.customer@example.com');
+    expect(confirm.body.subject).toBe('Confirm your email for SiteSnap');
+    expect(confirm.body.html).toContain('/verify-email?token=');
+    sent = sent.filter(m => m.body.to[0] === 'sitesnap.admin@gmail.com');
     expect(sent).toHaveLength(1);
     expect(sent[0].url).toBe('https://api.resend.com/emails');
-    expect(sent[0].body.to).toEqual(['sitesnap.admin@gmail.com']);
     expect(sent[0].body.subject).toBe('You have 1 new SiteSnap sign up!');
     expect(sent[0].body.html).toContain('new.customer@example.com');
     expect(sent[0].body.html).toContain('Name:');
@@ -73,6 +78,7 @@ describe('new sign up alert', () => {
     await request(app).post('/api/auth/register')
       .send({ name: 'Jane Smith', email: 'jane@example.com', password: 'hunter22' });
     await settle();
+    sent = sent.filter(m => m.body.to[0] === 'sitesnap.admin@gmail.com');
     expect(sent).toHaveLength(1);
     expect(sent[0].body.html).toContain('<strong>Name:</strong> Jane Smith');
   });
