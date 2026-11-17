@@ -1760,7 +1760,7 @@ a{color:#6C47FF;font-weight:600;text-decoration:none}</style></head><body>
   <p class="sub">Pick something you'll remember. This link works once.</p>
   <label for="pw">New password</label>
   <div class="pw-wrap">
-    <input type="password" id="pw" placeholder="At least 6 characters" autocomplete="new-password">
+    <input type="password" id="pw" placeholder="At least 8 characters" autocomplete="new-password">
     <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePw()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
   </div>
   <button id="go" onclick="submitReset()">Save new password</button>
@@ -1782,7 +1782,7 @@ async function submitReset(){
   const pw = document.getElementById('pw').value;
   const msg = document.getElementById('msg');
   const btn = document.getElementById('go');
-  if (pw.length < 6){ msg.className='msg bad'; msg.textContent='Please use at least 6 characters.'; return; }
+  if (pw.length < 8){ msg.className='msg bad'; msg.textContent='Please use at least 8 characters.'; return; }
   btn.disabled = true; msg.className='msg'; msg.textContent='Saving…';
   try{
     const r = await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},

@@ -1226,7 +1226,7 @@
             </div>
             <div style="display:flex;gap:8px;">
               <div class="pw-wrap" style="flex:1;">
-                <input type="password" id="new-password" class="copy-field" placeholder="New password (min 6 characters)" style="width:100%;">
+                <input type="password" id="new-password" class="copy-field" placeholder="New password (min 8 characters)" style="width:100%;">
                 <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePwVisibility('new-password', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
               </div>
               <button class="btn-domain-save" onclick="saveNewPassword()">Save</button>
@@ -1369,7 +1369,7 @@
             <li>Unlimited edits on Starter and Pro</li>
             <li>Add up to 9 customer testimonials</li>
             <li>Manage everything from your "My Sites" dashboard</li>
-            <li>Priority support when you need a hand</li>
+            <li>Email support when you need a hand</li>
           </ul>
         </div>
         <div class="mkt-tab-visual">📈</div>
@@ -1746,9 +1746,9 @@
           <div class="mkt-price-desc">To try SiteSnap out</div>
           <ul class="mkt-price-feats">
             <li>1 live site</li>
-            <li>Shareable site-snap.app link</li>
+            <li>Shareable preview link</li>
+            <li>All 6 design themes</li>
             <li>"Built with SiteSnap" badge</li>
-            <li>1 design theme</li>
           </ul>
           <button class="mkt-price-btn" onclick="startWizard()">Start free</button>
         </div>
@@ -1759,11 +1759,11 @@
           <div class="mkt-price-desc">For a polished, badge-free site</div>
           <ul class="mkt-price-feats">
             <li>No "Built with SiteSnap" badge</li>
-            <li>yourbrand.site-snap.app address</li>
-            <li>All 6 design themes</li>
-            <li>Unlimited edits</li>
+            <li class="subdomain-feature" style="display:none;">yourbrand.site-snap.app address</li>
+            <li>1 live site, unlimited edits</li>
+            <li>One payment, no subscription</li>
           </ul>
-          <button class="mkt-price-btn" onclick="startWizard()">Get Starter</button>
+          <button class="mkt-price-btn" onclick="pricingCta('starter')">Get Starter</button>
         </div>
         <div class="mkt-price-card">
           <div class="mkt-price-name">Pro</div>
@@ -1771,11 +1771,11 @@
           <div class="mkt-price-desc">For your own domain</div>
           <ul class="mkt-price-feats">
             <li>Everything in Starter</li>
+            <li>Unlimited sites</li>
             <li>Your own domain (yourbrand.com)</li>
             <li>Automatic SSL certificate</li>
-            <li>Priority support</li>
           </ul>
-          <button class="mkt-price-btn" onclick="startWizard()">Get Pro</button>
+          <button class="mkt-price-btn" onclick="pricingCta('pro')">Get Pro</button>
         </div>
       </div>
     </div>
@@ -1810,6 +1810,7 @@
 <!-- DASHBOARD (shown instead of the landing page once someone is logged in) -->
 <div id="dashboard-view" class="dash-view" style="display:none;">
   <div id="plan-alert-wrap" style="padding:0 24px;"></div>
+  <div id="verify-alert-wrap" style="padding:0 24px;"></div>
   <div class="dash-hero">
     <div class="dash-blob dash-blob1"></div>
     <div class="dash-blob dash-blob2"></div>
@@ -1856,8 +1857,8 @@
         <div class="plan-card-features">
           <div class="plan-feat">No "Built with SiteSnap" badge</div>
           <div class="plan-feat subdomain-feature" style="display:none;">yourbrand.site-snap.app address</div>
-          <div class="plan-feat">All 6 design themes</div>
-          <div class="plan-feat">Unlimited edits</div>
+          <div class="plan-feat">1 live site, unlimited edits</div>
+          <div class="plan-feat">One payment, no subscription</div>
         </div>
         <button class="btn-upgrade" onclick="startCheckout('starter')">Get Starter →</button>
       </div>
@@ -1868,9 +1869,9 @@
         <div class="plan-card-price">$12<span>/month</span></div>
         <div class="plan-card-features">
           <div class="plan-feat">Everything in Starter</div>
+          <div class="plan-feat">Unlimited sites</div>
           <div class="plan-feat">Your own domain (yourbrand.com)</div>
           <div class="plan-feat">Automatic SSL certificate</div>
-          <div class="plan-feat">Priority support</div>
         </div>
         <button class="btn-upgrade" onclick="startCheckout('pro')">Get Pro →</button>
       </div>
@@ -1907,7 +1908,7 @@
       <input type="email" id="auth-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
     <div class="field">
-      <label>Password <span class="hint">(min 6 characters)</span></label>
+      <label>Password <span class="hint">(min 8 characters)</span></label>
       <div class="pw-wrap">
         <input type="password" id="auth-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')submitAuth()">
         <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePwVisibility('auth-password', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
@@ -1951,7 +1952,7 @@
 
     <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin:26px 0 10px;">Password</div>
     <div class="field">
-      <label>New password <span class="hint">(min 6 characters)</span></label>
+      <label>New password <span class="hint">(min 8 characters)</span></label>
       <div class="pw-wrap">
         <input type="password" id="acct-password" placeholder="••••••••">
         <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePwVisibility('acct-password', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
@@ -2221,9 +2222,12 @@ function renderAuthArea() {
 async function refreshPlan() {
   try {
     const res = await fetch('/api/me', { headers:{ Authorization:`Bearer ${authToken}` } });
+    // The session was ended elsewhere (password changed) or the account is gone
+    if (res.status === 401) { logout(); openAuthModal('login'); return; }
     if (!res.ok) return;
     const data = await res.json();
     renderPlanAlert(data);
+    renderVerifyAlert(data);
     if (data.plan && data.plan !== authPlan) {
       authPlan = data.plan;
       localStorage.setItem('ss_plan', authPlan);
@@ -2281,6 +2285,7 @@ function closeAuthModal() {
   document.getElementById('auth-email').value = '';
   document.getElementById('auth-password').value = '';
   pendingSave = false;
+  pendingCheckoutPlan = null;
 }
 
 function toggleAuthMode() {
@@ -2333,8 +2338,11 @@ async function submitAuth() {
     // below never fires — the person registers, sees the modal close, and
     // nothing else happens, looking exactly like a failed/incomplete signup.
     const shouldSave = pendingSave;
+    const checkoutPlan = pendingCheckoutPlan;
+    pendingCheckoutPlan = null;
     closeAuthModal();
     renderAuthArea();
+    if (checkoutPlan) { startCheckout(checkoutPlan); return; }
 
     // A pending save means they were mid-wizard when prompted to sign in —
     // finish that save and show them the result, don't yank them to the
@@ -2424,7 +2432,7 @@ function refreshDashGreeting() {
   if (!greetEl) return;
   const hour = new Date().getHours();
   const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
-  greetEl.textContent = `Good ${part}, ${escHtml(dashDisplayName())} 👋`;
+  greetEl.textContent = `Good ${part}, ${dashDisplayName()} 👋`;
 }
 
 async function renderDashboard() {
@@ -3908,6 +3916,15 @@ function closeUpgradeModal() {
   document.getElementById('upgrade-modal').classList.remove('show');
 }
 
+// Landing-page pricing buttons: straight to checkout when signed in, otherwise
+// sign up first and then continue to checkout for the plan they picked.
+let pendingCheckoutPlan = null;
+function pricingCta(plan) {
+  if (authToken) { startCheckout(plan); return; }
+  pendingCheckoutPlan = plan;
+  openAuthModal('register');
+}
+
 async function startCheckout(plan) {
   if (!authToken) { openAuthModal('register'); return; }
   const btn = document.querySelector(`#upgrade-modal .btn-upgrade[onclick="startCheckout('${plan}')"]`);
@@ -3948,6 +3965,27 @@ function renderPlanAlert(me) {
     msg = '<strong>Your Pro plan has ended.</strong> Your account now allows ' + limitText + '. Delete ' + sites + ' by ' + fmtPlanDate(me.overLimitDeadline) + ', or reactivate Pro to keep them all. After that date your account will be restricted.';
   }
   wrap.innerHTML = '<div class="plan-alert"><div>' + msg + '</div><button onclick="openPlanModal()">Reactivate Pro</button></div>';
+}
+
+function renderVerifyAlert(me) {
+  const wrap = document.getElementById('verify-alert-wrap');
+  if (!wrap) return;
+  if (!me || me.emailVerified || !me.emailConfirmationOn) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<div class="plan-alert"><div><strong>Please confirm your email.</strong> We sent a link to ' + escHtml(me.email) +
+    '. Confirming it means you can always reset your password.</div><button id="verify-resend-btn" onclick="resendVerification()">Resend email</button></div>';
+}
+
+async function resendVerification() {
+  const btn = document.getElementById('verify-resend-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    const res = await fetch('/api/auth/resend-verification', { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not send');
+    if (btn) btn.textContent = data.alreadyVerified ? 'Already confirmed ✓' : 'Sent ✓ Check your inbox';
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+  }
 }
 
 function fmtPlanDate(iso) {
@@ -4034,7 +4072,7 @@ function renderPlanCards() {
 
   const subEl = document.getElementById('plan-sub');
   if (plan === 'free') subEl.textContent = 'Upgrade to Starter or Pro, or stay on Free. Your sites stay safe whichever you choose.';
-  else if (plan === 'starter') subEl.textContent = 'Switch to Pro for unlimited sites, your own domain and priority support, or stay on Starter. Starter is a one time purchase, so there is no need to downgrade. Your sites stay safe either way.';
+  else if (plan === 'starter') subEl.textContent = 'Switch to Pro for unlimited sites and your own domain, or stay on Starter. Starter is a one time purchase, so there is no need to downgrade. Your sites stay safe either way.';
   else if (cancelled) subEl.textContent = 'Your Pro plan runs until ' + ends + '. Reactivate Pro to keep it, or switch to Starter or Free. Your sites stay safe whichever you choose.';
   else subEl.textContent = 'You are on Pro. You can switch to Starter or Free at any time and keep Pro until the month you paid for ends. Your sites stay safe whichever you choose.';
 
@@ -4049,8 +4087,8 @@ function renderPlanCards() {
 
   document.getElementById('plan-cards').innerHTML =
     card('free', 'Free', '$0', ['1 site', 'Live preview', 'SiteSnap badge on your site'], free) +
-    card('starter', 'Starter', '$29<span> one time</span>', ['No "Built with SiteSnap" badge', 'All 6 design themes', 'Unlimited edits'], starter) +
-    card('pro', 'Pro', '$12<span>/month</span>', ['Everything in Starter', 'Unlimited sites', 'Your own domain', 'Automatic SSL certificate', 'Priority support'], pro);
+    card('starter', 'Starter', '$29<span> one time</span>', ['No "Built with SiteSnap" badge', '1 live site, unlimited edits', 'One payment, no subscription'], starter) +
+    card('pro', 'Pro', '$12<span>/month</span>', ['Everything in Starter', 'Unlimited sites', 'Your own domain', 'Automatic SSL certificate'], pro);
 }
 
 function setPlanMsg(text, ok) {
@@ -4409,8 +4447,8 @@ async function saveNewPassword() {
   const input = document.getElementById('new-password');
   const out = document.getElementById('set-password-result');
   const pw = (input?.value || '');
-  if (pw.length < 6) {
-    out.textContent = 'Please use at least 6 characters.';
+  if (pw.length < 8) {
+    out.textContent = 'Please use at least 8 characters.';
     out.style.color = 'var(--danger)';
     return;
   }
@@ -4424,6 +4462,8 @@ async function saveNewPassword() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
+    // Changing the password signs out other devices; keep this one signed in
+    if (data.token) { authToken = data.token; localStorage.setItem('ss_token', authToken); }
     input.value = '';
     out.textContent = '✓ Password set — you can now sign in from anywhere.';
     out.style.color = 'var(--success)';
@@ -4523,7 +4563,7 @@ async function saveAccountPassword() {
   const out = document.getElementById('acct-password-result');
   const input = document.getElementById('acct-password');
   const pw = input.value || '';
-  if (pw.length < 6) { out.textContent = 'Please use at least 6 characters.'; out.style.color = 'var(--danger)'; return; }
+  if (pw.length < 8) { out.textContent = 'Please use at least 8 characters.'; out.style.color = 'var(--danger)'; return; }
   out.textContent = 'Saving…';
   out.style.color = 'var(--text-muted)';
   try {
@@ -4534,8 +4574,9 @@ async function saveAccountPassword() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Could not update password');
+    if (data.token) { authToken = data.token; localStorage.setItem('ss_token', authToken); }
     input.value = '';
-    out.textContent = '✓ Password updated.';
+    out.textContent = '✓ Password updated. Any other devices have been signed out.';
     out.style.color = 'var(--success)';
   } catch (e) {
     out.textContent = '✗ ' + e.message;
