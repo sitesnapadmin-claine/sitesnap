@@ -15,7 +15,7 @@ npm start
 
 Open http://localhost:3000. Without `DATABASE_URL` the app uses a local SQLite file (`sitesnap.db`), which is fine for development.
 
-Run the tests (they also run on GitHub for every pull request):
+Run the tests:
 
 ```bash
 npm test
