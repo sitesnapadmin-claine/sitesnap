@@ -4,6 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SiteSnap — Build Your Website in Minutes</title>
+<meta name="description" content="Answer a few questions and SiteSnap builds a professional website for your small business in minutes. Start free, no credit card needed.">
+<link rel="canonical" href="https://www.site-snap.app/">
+<meta name="theme-color" content="#6C47FF">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SiteSnap">
+<meta property="og:title" content="SiteSnap — Build Your Website in Minutes">
+<meta property="og:description" content="Answer a few questions and get a professional website for your small business. Start free.">
+<meta property="og:url" content="https://www.site-snap.app/">
+<meta property="og:image" content="https://www.site-snap.app/sitesnap-teaser-poster.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SiteSnap — Build Your Website in Minutes">
+<meta name="twitter:description" content="Answer a few questions and get a professional website for your small business. Start free.">
+<meta name="twitter:image" content="https://www.site-snap.app/sitesnap-teaser-poster.jpg">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -74,6 +87,9 @@
   .step { display:none; }
   .step.active { display:block; animation:fadeSlide 0.35s ease; }
   @keyframes fadeSlide { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  }
 
   /* ── HEADINGS ─────────────────────────────────── */
   .step-badge { display:inline-block; background:var(--brand-light); color:var(--brand); font-size:12px; font-weight:700; letter-spacing:0.8px; text-transform:uppercase; padding:4px 12px; border-radius:20px; margin-bottom:14px; }
@@ -924,19 +940,19 @@
         <div class="copy-section-block">
           <div class="copy-section-hdr">
             <div>
-              <div style="font-size:14px;font-weight:600;color:var(--text);">Social proof bar</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">4 trust badges shown below your hero image</div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">Highlights bar</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Up to 4 short, true facts shown below your hero. Only what you type appears.</div>
             </div>
             <label class="tog">
-              <input type="checkbox" id="show-trust-bar" checked onchange="toggleTrustBar(this.checked)">
+              <input type="checkbox" id="show-trust-bar" onchange="toggleTrustBar(this.checked)">
               <span class="tog-tk"></span>
             </label>
           </div>
           <div class="copy-section-fields" id="trust-fields">
-            <input type="text" class="copy-field" id="trust-1" placeholder="Trusted worldwide" maxlength="32">
-            <input type="text" class="copy-field" id="trust-2" placeholder="5-star rated" maxlength="32">
-            <input type="text" class="copy-field" id="trust-3" placeholder="100% satisfaction" maxlength="32">
-            <input type="text" class="copy-field" id="trust-4" placeholder="Your location (auto)" maxlength="32">
+            <input type="text" class="copy-field" id="trust-1" placeholder="e.g. Family-run since 2012" maxlength="32">
+            <input type="text" class="copy-field" id="trust-2" placeholder="e.g. Fully licensed &amp; insured" maxlength="32">
+            <input type="text" class="copy-field" id="trust-3" placeholder="e.g. Free quotes" maxlength="32">
+            <input type="text" class="copy-field" id="trust-4" placeholder="e.g. Serving all of Leeds" maxlength="32">
           </div>
         </div>
 
@@ -1097,6 +1113,30 @@
         </div>
 
         <!-- CTA section -->
+        <!-- Contact details -->
+        <div class="copy-section-block">
+          <div class="copy-section-hdr">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);">Contact details</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">How customers reach you. Shown in your Contact section and footer. Leave any blank to hide it.</div>
+            </div>
+          </div>
+          <div class="copy-section-fields" id="contact-fields">
+            <input type="tel" class="copy-field" id="contact-phone" placeholder="Phone, e.g. 0113 496 0000" maxlength="40" autocomplete="tel">
+            <input type="email" class="copy-field" id="contact-email" placeholder="Email, e.g. hello@yourbusiness.com" maxlength="254" autocomplete="email">
+            <input type="text" class="copy-field" id="contact-address" placeholder="Address (opens in Google Maps)" maxlength="200">
+            <textarea class="copy-field" id="contact-hours" rows="3" maxlength="300" placeholder="Opening hours, e.g.&#10;Mon–Fri 9am–5pm&#10;Sat 10am–2pm"></textarea>
+            <input type="url" class="copy-field" id="contact-facebook" placeholder="Facebook page link" maxlength="300">
+            <input type="url" class="copy-field" id="contact-instagram" placeholder="Instagram link" maxlength="300">
+            <input type="url" class="copy-field" id="contact-tiktok" placeholder="TikTok link" maxlength="300">
+            <input type="url" class="copy-field" id="contact-linkedin" placeholder="LinkedIn link" maxlength="300">
+            <label id="contact-form-row" style="display:none;align-items:flex-start;gap:10px;font-size:13px;color:var(--text);margin-top:4px;cursor:pointer;">
+              <input type="checkbox" id="contact-form" style="margin-top:3px;">
+              <span><strong>Add a contact form.</strong> Visitors' messages are emailed to your SiteSnap account email.</span>
+            </label>
+          </div>
+        </div>
+
         <div class="copy-section-block">
           <div class="copy-section-hdr">
             <div>
@@ -1226,7 +1266,7 @@
             </div>
             <div style="display:flex;gap:8px;">
               <div class="pw-wrap" style="flex:1;">
-                <input type="password" id="new-password" class="copy-field" placeholder="New password (min 6 characters)" style="width:100%;">
+                <input type="password" id="new-password" class="copy-field" placeholder="New password (min 8 characters)" style="width:100%;">
                 <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePwVisibility('new-password', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
               </div>
               <button class="btn-domain-save" onclick="saveNewPassword()">Save</button>
@@ -1369,7 +1409,7 @@
             <li>Unlimited edits on Starter and Pro</li>
             <li>Add up to 9 customer testimonials</li>
             <li>Manage everything from your "My Sites" dashboard</li>
-            <li>Priority support when you need a hand</li>
+            <li>Email support when you need a hand</li>
           </ul>
         </div>
         <div class="mkt-tab-visual">📈</div>
@@ -1746,9 +1786,9 @@
           <div class="mkt-price-desc">To try SiteSnap out</div>
           <ul class="mkt-price-feats">
             <li>1 live site</li>
-            <li>Shareable site-snap.app link</li>
+            <li>Shareable preview link</li>
+            <li>All 6 design themes</li>
             <li>"Built with SiteSnap" badge</li>
-            <li>1 design theme</li>
           </ul>
           <button class="mkt-price-btn" onclick="startWizard()">Start free</button>
         </div>
@@ -1759,11 +1799,11 @@
           <div class="mkt-price-desc">For a polished, badge-free site</div>
           <ul class="mkt-price-feats">
             <li>No "Built with SiteSnap" badge</li>
-            <li>yourbrand.site-snap.app address</li>
-            <li>All 6 design themes</li>
-            <li>Unlimited edits</li>
+            <li class="subdomain-feature" style="display:none;">yourbrand.site-snap.app address</li>
+            <li>1 live site, unlimited edits</li>
+            <li>One payment, no subscription</li>
           </ul>
-          <button class="mkt-price-btn" onclick="startWizard()">Get Starter</button>
+          <button class="mkt-price-btn" onclick="pricingCta('starter')">Get Starter</button>
         </div>
         <div class="mkt-price-card">
           <div class="mkt-price-name">Pro</div>
@@ -1771,11 +1811,11 @@
           <div class="mkt-price-desc">For your own domain</div>
           <ul class="mkt-price-feats">
             <li>Everything in Starter</li>
+            <li>Unlimited sites</li>
             <li>Your own domain (yourbrand.com)</li>
             <li>Automatic SSL certificate</li>
-            <li>Priority support</li>
           </ul>
-          <button class="mkt-price-btn" onclick="startWizard()">Get Pro</button>
+          <button class="mkt-price-btn" onclick="pricingCta('pro')">Get Pro</button>
         </div>
       </div>
     </div>
@@ -1810,6 +1850,7 @@
 <!-- DASHBOARD (shown instead of the landing page once someone is logged in) -->
 <div id="dashboard-view" class="dash-view" style="display:none;">
   <div id="plan-alert-wrap" style="padding:0 24px;"></div>
+  <div id="verify-alert-wrap" style="padding:0 24px;"></div>
   <div class="dash-hero">
     <div class="dash-blob dash-blob1"></div>
     <div class="dash-blob dash-blob2"></div>
@@ -1845,7 +1886,7 @@
 <!-- UPGRADE MODAL -->
 <div class="modal-overlay" id="upgrade-modal">
   <div class="modal upgrade-modal">
-    <button class="modal-close" onclick="closeUpgradeModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closeUpgradeModal()">×</button>
     <h3>🚀 Unlock more with SiteSnap</h3>
     <p class="modal-sub">Your site is live! Want to remove the SiteSnap badge or add a custom address?</p>
     <div class="plans-grid">
@@ -1856,8 +1897,8 @@
         <div class="plan-card-features">
           <div class="plan-feat">No "Built with SiteSnap" badge</div>
           <div class="plan-feat subdomain-feature" style="display:none;">yourbrand.site-snap.app address</div>
-          <div class="plan-feat">All 6 design themes</div>
-          <div class="plan-feat">Unlimited edits</div>
+          <div class="plan-feat">1 live site, unlimited edits</div>
+          <div class="plan-feat">One payment, no subscription</div>
         </div>
         <button class="btn-upgrade" onclick="startCheckout('starter')">Get Starter →</button>
       </div>
@@ -1868,9 +1909,9 @@
         <div class="plan-card-price">$12<span>/month</span></div>
         <div class="plan-card-features">
           <div class="plan-feat">Everything in Starter</div>
+          <div class="plan-feat">Unlimited sites</div>
           <div class="plan-feat">Your own domain (yourbrand.com)</div>
           <div class="plan-feat">Automatic SSL certificate</div>
-          <div class="plan-feat">Priority support</div>
         </div>
         <button class="btn-upgrade" onclick="startCheckout('pro')">Get Pro →</button>
       </div>
@@ -1882,7 +1923,7 @@
 <!-- CHANGE PLAN MODAL -->
 <div class="modal-overlay" id="plan-modal">
   <div class="modal upgrade-modal plan-modal">
-    <button class="modal-close" onclick="closePlanModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closePlanModal()">×</button>
     <h3>Your plan</h3>
     <p class="modal-sub" id="plan-sub">Reactivate Pro, switch to Starter, or stay on Free. Your sites stay safe whichever you choose.</p>
     <div class="plans-grid three" id="plan-cards"><div class="plan-note">Loading your plan…</div></div>
@@ -1894,7 +1935,7 @@
 <!-- AUTH MODAL -->
 <div class="modal-overlay" id="auth-modal">
   <div class="modal">
-    <button class="modal-close" onclick="closeAuthModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closeAuthModal()">×</button>
     <h3 id="modal-title">Create your account</h3>
     <p class="modal-sub" id="modal-sub">Save your site and get a shareable link in seconds.</p>
     <div class="auth-error" id="auth-error"></div>
@@ -1907,7 +1948,7 @@
       <input type="email" id="auth-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')submitAuth()">
     </div>
     <div class="field">
-      <label>Password <span class="hint">(min 6 characters)</span></label>
+      <label>Password <span class="hint">(min 8 characters)</span></label>
       <div class="pw-wrap">
         <input type="password" id="auth-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')submitAuth()">
         <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePwVisibility('auth-password', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
@@ -1933,7 +1974,7 @@
 <!-- ACCOUNT MODAL -->
 <div class="modal-overlay" id="account-modal">
   <div class="modal" style="max-width:480px;max-height:86vh;overflow-y:auto;">
-    <button class="modal-close" onclick="closeAccountModal()">×</button>
+    <button class="modal-close" aria-label="Close" onclick="closeAccountModal()">×</button>
     <h3>⚙ My Account</h3>
     <p class="modal-sub">Manage your profile, subscription, and account.</p>
 
@@ -1951,7 +1992,7 @@
 
     <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin:26px 0 10px;">Password</div>
     <div class="field">
-      <label>New password <span class="hint">(min 6 characters)</span></label>
+      <label>New password <span class="hint">(min 8 characters)</span></label>
       <div class="pw-wrap">
         <input type="password" id="acct-password" placeholder="••••••••">
         <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePwVisibility('acct-password', this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
@@ -2008,8 +2049,9 @@ const state = {
   logoUrl:null, heroUrl:null, aboutUrl:null,
   colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'',
   fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call',
-  showTrustBar:true, trust1:'', trust2:'', trust3:'', trust4:'',
+  showTrustBar:false, trust1:'', trust2:'', trust3:'', trust4:'',
   ctaHeadline:'', ctaSubtext:'',
+  contact:{ phone:'', email:'', address:'', hours:'', facebook:'', instagram:'', tiktok:'', linkedin:'', form:false },
   // Gallery + FAQ: each has its own eyebrow/heading/subheading plus repeatable rows
   galleryEyebrow:'', galleryTitle:'', gallerySub:'', gallery:[],
   faqEyebrow:'', faqTitle:'', faqSub:'', faqs:[],
@@ -2036,12 +2078,34 @@ const GALLERY_SUGGESTED = 9;
 /* Feature availability comes from the server so we never advertise something
    a paying customer couldn't actually use. Defaults to off until confirmed. */
 let subdomainsEnabled = false;
+let contactFormEnabled = false;
+
+function fillContactFields(c) {
+  c = c || {};
+  ['phone','email','address','hours','facebook','instagram','tiktok','linkedin'].forEach(k => {
+    const el = document.getElementById('contact-' + k);
+    if (el) el.value = c[k] || '';
+  });
+  const form = document.getElementById('contact-form');
+  if (form) form.checked = Boolean(c.form);
+}
 let subdomainSuffix = null;
 
 fetch('/api/config')
   .then(r => r.json())
   .then(cfg => {
     subdomainsEnabled = Boolean(cfg.subdomainsEnabled);
+    contactFormEnabled = Boolean(cfg.contactFormEnabled);
+    // Privacy-friendly, cookie-free visit counting, switched on by the server's PLAUSIBLE_DOMAIN setting
+    if (cfg.plausibleDomain && !document.getElementById('plausible-js')) {
+      const sc = document.createElement('script');
+      sc.id = 'plausible-js'; sc.defer = true;
+      sc.setAttribute('data-domain', cfg.plausibleDomain);
+      sc.src = 'https://plausible.io/js/script.js';
+      document.head.appendChild(sc);
+    }
+    const cfRow = document.getElementById('contact-form-row');
+    if (cfRow) cfRow.style.display = contactFormEnabled ? 'flex' : 'none';
     subdomainSuffix = cfg.subdomainSuffix;
     if (cfg.passwordResetEnabled) {
       const fw = document.getElementById('forgot-wrap');
@@ -2221,9 +2285,12 @@ function renderAuthArea() {
 async function refreshPlan() {
   try {
     const res = await fetch('/api/me', { headers:{ Authorization:`Bearer ${authToken}` } });
+    // The session was ended elsewhere (password changed) or the account is gone
+    if (res.status === 401) { logout(); openAuthModal('login'); return; }
     if (!res.ok) return;
     const data = await res.json();
     renderPlanAlert(data);
+    renderVerifyAlert(data);
     if (data.plan && data.plan !== authPlan) {
       authPlan = data.plan;
       localStorage.setItem('ss_plan', authPlan);
@@ -2281,6 +2348,7 @@ function closeAuthModal() {
   document.getElementById('auth-email').value = '';
   document.getElementById('auth-password').value = '';
   pendingSave = false;
+  pendingCheckoutPlan = null;
 }
 
 function toggleAuthMode() {
@@ -2333,8 +2401,11 @@ async function submitAuth() {
     // below never fires — the person registers, sees the modal close, and
     // nothing else happens, looking exactly like a failed/incomplete signup.
     const shouldSave = pendingSave;
+    const checkoutPlan = pendingCheckoutPlan;
+    pendingCheckoutPlan = null;
     closeAuthModal();
     renderAuthArea();
+    if (checkoutPlan) { startCheckout(checkoutPlan); return; }
 
     // A pending save means they were mid-wizard when prompted to sign in —
     // finish that save and show them the result, don't yank them to the
@@ -2424,7 +2495,7 @@ function refreshDashGreeting() {
   if (!greetEl) return;
   const hour = new Date().getHours();
   const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
-  greetEl.textContent = `Good ${part}, ${escHtml(dashDisplayName())} 👋`;
+  greetEl.textContent = `Good ${part}, ${dashDisplayName()} 👋`;
 }
 
 async function renderDashboard() {
@@ -2477,7 +2548,7 @@ async function renderDashboard() {
     return `
     <div class="dash-card">
       <div class="dash-card-strip" style="background:linear-gradient(135deg,${escHtml(p)},${escHtml(a)});">
-        <button class="dash-card-delete" title="Delete site" onclick="event.stopPropagation();dashDeleteSite('${escHtml(s.uuid)}',this)">🗑</button>
+        <button class="dash-card-delete" title="Delete site" aria-label="Delete ${escHtml(s.bizName || 'this site')}" onclick="event.stopPropagation();dashDeleteSite('${escHtml(s.uuid)}',this)">🗑</button>
         <span class="dash-emoji">${industryEmoji(s.industry)}</span>
       </div>
       <div class="dash-card-body">
@@ -2487,7 +2558,7 @@ async function renderDashboard() {
           <button class="dash-btn-edit" onclick="editSite('${escHtml(s.uuid)}')">Edit</button>
           <button class="dash-btn-view" onclick="window.open('${siteLiveUrl(s)}','_blank')">View live ↗</button>
         </div>
-        ${updated ? `<div class="dash-updated-tag"><span class="dash-live-dot"></span>Updated ${updated}</div>` : ''}
+        ${updated ? `<div class="dash-updated-tag"><span class="dash-live-dot"></span>Updated ${updated}${typeof s.views === 'number' ? ` · ${s.views.toLocaleString()} ${s.views === 1 ? 'visit' : 'visits'}` : ''}</div>` : ''}
       </div>
     </div>`;
   }).join('') + `
@@ -2543,8 +2614,11 @@ if (mktYearEl) mktYearEl.textContent = new Date().getFullYear();
 
 function startOver() {
   // Reset state
-  Object.assign(state, { bizName:'', tagline:'', heroHeadline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', showTrustBar:true, trust1:'', trust2:'', trust3:'', trust4:'', ctaHeadline:'', ctaSubtext:'', designStyle:null, sections:{about:true,services:true,testimonial:false,cta:true}, aboutEyebrow:'', aboutTitle:'', servicesEyebrow:'', servicesTitle:'', servicesSub:'', features:[{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''}], feat1IconUrl:null, feat2IconUrl:null, feat3IconUrl:null, testimonialEyebrow:'', testimonials:[{quote:'',author:''}], buttons:null });
+  Object.assign(state, { bizName:'', tagline:'', heroHeadline:'', industry:'', location:'', logoUrl:null, heroUrl:null, aboutUrl:null, colorPrimary:'#6C47FF', colorAccent:'#FF6B6B', colorButton:'', fontStyle:'modern', audience:'', problem:'', differentiator:'', ctaType:'Book a Call', showTrustBar:false, contact:{ phone:'', email:'', address:'', hours:'', facebook:'', instagram:'', tiktok:'', linkedin:'', form:false }, trust1:'', trust2:'', trust3:'', trust4:'', ctaHeadline:'', ctaSubtext:'', designStyle:null, sections:{about:true,services:true,testimonial:false,cta:true}, aboutEyebrow:'', aboutTitle:'', servicesEyebrow:'', servicesTitle:'', servicesSub:'', features:[{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''},{title:'',text:'',iconUrl:''}], feat1IconUrl:null, feat2IconUrl:null, feat3IconUrl:null, testimonialEyebrow:'', testimonials:[{quote:'',author:''}], buttons:null });
   renderTestimonialBlocks();
+  fillContactFields(state.contact);
+  const tbBox = document.getElementById('show-trust-bar');
+  if (tbBox) { tbBox.checked = false; toggleTrustBar(false); }
   document.getElementById('share-box').classList.remove('show');
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('btn-share').textContent = '🔗 Save & Share';
@@ -2612,6 +2686,8 @@ function goTo(n) {
   if (n === 5) { document.getElementById('progress-wrap').style.display = 'none'; showStep(5); runGenerating(); }
   else if (n === 6) { showStep(6); renderPreview(); }
   else showStep(n);
+  // Each step starts at the top, instead of mid-card where the last one ended
+  window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
 /* ═══════════════════════════════════════════════════
@@ -2665,6 +2741,17 @@ function collectStep(step) {
     state.trust4 = document.getElementById('trust-4').value.trim();
     state.ctaHeadline = document.getElementById('cta-headline').value.trim();
     state.ctaSubtext = document.getElementById('cta-subtext').value.trim();
+    state.contact = {
+      phone: document.getElementById('contact-phone').value.trim(),
+      email: document.getElementById('contact-email').value.trim(),
+      address: document.getElementById('contact-address').value.trim(),
+      hours: document.getElementById('contact-hours').value.trim(),
+      facebook: document.getElementById('contact-facebook').value.trim(),
+      instagram: document.getElementById('contact-instagram').value.trim(),
+      tiktok: document.getElementById('contact-tiktok').value.trim(),
+      linkedin: document.getElementById('contact-linkedin').value.trim(),
+      form: contactFormEnabled && document.getElementById('contact-form').checked,
+    };
 
     // Which sections appear
     state.sections = {
@@ -3183,8 +3270,34 @@ function removeUpload(field, event) {
 function syncHex(which) { document.getElementById(`hex-${which}`).value = document.getElementById(`color-${which}`).value; }
 function syncColor(which) { const v = document.getElementById(`hex-${which}`).value; if (/^#[0-9A-Fa-f]{6}$/.test(v)) document.getElementById(`color-${which}`).value = v; }
 function toggleTrustBar(show) { const f = document.getElementById('trust-fields'); f.style.opacity = show ? '1' : '0.35'; f.style.pointerEvents = show ? '' : 'none'; }
+toggleTrustBar(false);
 function selectFont(card, val) { document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('selected')); card.classList.add('selected'); state.fontStyle = val; }
-function selectStyle(card, style) { document.querySelectorAll('.style-card').forEach(c => c.classList.remove('selected')); card.classList.add('selected'); state.designStyle = style; document.getElementById('err-style').classList.remove('show'); }
+// Each theme's own palette. Used when the owner never changed the colour
+// pickers, so a site doesn't ship in SiteSnap's purple by accident.
+const THEME_DEFAULT_COLORS = {
+  'light-airy': { primary: '#8B5E3C', accent: '#C4966A' },
+  'bold-modern': { primary: '#6C47FF', accent: '#00C2FF' },
+  'earthy': { primary: '#5A7A3A', accent: '#C4A882' },
+  'luxe': { primary: '#C9A84C', accent: '#C9A84C' },
+  'playful': { primary: '#FF6B6B', accent: '#FFB347' },
+  'professional': { primary: '#1E3A5F', accent: '#2563EB' },
+};
+function colorsUntouched() {
+  const p = (state.colorPrimary || '').toUpperCase(), a = (state.colorAccent || '').toUpperCase(), b = (state.colorButton || '').toUpperCase();
+  const isDefault = (p === '#6C47FF' && a === '#FF6B6B') ||
+    Object.values(THEME_DEFAULT_COLORS).some(t => t.primary.toUpperCase() === p && t.accent.toUpperCase() === a);
+  return isDefault && (!b || b === p);
+}
+function applyThemeColors(style) {
+  const t = THEME_DEFAULT_COLORS[style];
+  if (!t || !colorsUntouched()) return;
+  state.colorPrimary = t.primary; state.colorAccent = t.accent; state.colorButton = '';
+  [['primary', t.primary], ['accent', t.accent], ['button', t.primary]].forEach(([k, v]) => {
+    const c = document.getElementById('color-' + k), h = document.getElementById('hex-' + k);
+    if (c) c.value = v; if (h) h.value = v;
+  });
+}
+function selectStyle(card, style) { document.querySelectorAll('.style-card').forEach(c => c.classList.remove('selected')); card.classList.add('selected'); applyThemeColors(style); state.designStyle = style; document.getElementById('err-style').classList.remove('show'); }
 
 /* ═══════════════════════════════════════════════════
    GENERATING
@@ -3261,10 +3374,11 @@ function buildPreviewHtml(s) {
   const audience = s.audience || 'discerning clients';
   const cta = s.ctaType || 'Get Started';
   const loc = s.location ? ` · ${s.location}` : '';
-  const ti1 = s.trust1 || 'Trusted worldwide';
-  const ti2 = s.trust2 || '5-star rated';
-  const ti3 = s.trust3 || '100% satisfaction';
-  const ti4 = s.trust4 || s.location || 'Available online';
+  const trustItems = [s.trust1, s.trust2, s.trust3, s.trust4].map(t => (t || '').trim()).filter(Boolean);
+  const pc = s.contact || {};
+  const pcSocial = ['facebook','instagram','tiktok','linkedin'].filter(k => (pc[k] || '').trim());
+  const pcHas = Boolean((pc.phone || pc.email || pc.address || pc.hours || '').trim() || pcSocial.length);
+  const pcForm = Boolean(contactFormEnabled && pc.form);
   const ctaH = s.ctaHeadline || 'Ready to get started?';
   const ctaSub = s.ctaSubtext || `Join the people already working with ${name}.`;
 
@@ -3395,7 +3509,7 @@ ${pbg.faq ? `.fsec{${pbg.faq.flat}}
   <p class="hs">${tagline}</p>
   <div class="hb">${clientRenderCta(clientCtaFor(s,'heroMain',cta+' →','contact'), cta+' →', 'bp')}${clientRenderCta(clientCtaFor(s,'heroAlt','Learn More','about'), 'Learn More', 'bs')}</div>
 </div><div class="hi">${heroImg}</div></div>
-${s.showTrustBar !== false ? `<div class="tb"><div class="ti"><div class="td"></div>${ti1}</div><div class="ti"><div class="td"></div>${ti2}</div><div class="ti"><div class="td"></div>${ti3}</div><div class="ti"><div class="td"></div>${ti4}</div></div>` : ''}
+${s.showTrustBar !== false && trustItems.length ? `<div class="tb">${trustItems.map(t => `<div class="ti"><div class="td"></div>${escHtml(t)}</div>`).join('')}</div>` : ''}
 ${show.about ? `<div class="ab"><div class="ai">${aboutImg}</div><div>
   <div class="ey">${s.aboutEyebrow || 'Our Story'}</div>
   <div class="st">${s.aboutTitle || `We exist for ${audience.split(' ').slice(0,5).join(' ')}…`}</div>
@@ -3442,8 +3556,13 @@ ${show.faq ? `<div class="fg fsec">
     </div>`).join('')}
   </div>
 </div>` : ''}
-${show.cta ? `<div class="cs"><h2>${ctaH}</h2><p>${ctaSub}</p>
-${clientRenderCta(clientCtaFor(s,'final',cta+' →','contact'), cta+' →', 'bp', `background:${theme.ctaSectionBtn};color:${theme.ctaSectionBtnText};font-size:16px;padding:16px 40px;`)}</div>` : ''}
+${(show.cta || pcHas || pcForm) ? `<div class="cs">${show.cta ? `<h2>${ctaH}</h2><p>${ctaSub}</p>
+${clientRenderCta(clientCtaFor(s,'final',cta+' →','contact'), cta+' →', 'bp', `background:${theme.ctaSectionBtn};color:${theme.ctaSectionBtnText};font-size:16px;padding:16px 40px;`)}` : '<h2>Get in touch</h2>'}
+${(pcHas || pcForm) ? `<div style="display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));max-width:820px;margin:32px auto 0;text-align:left;">
+${pcHas ? `<div class="fc" style="background:${theme.cardBg};color:${theme.text};"><div class="ft" style="margin-bottom:10px;">Contact details</div>
+${pc.phone ? `<div class="fx" style="margin-bottom:6px;">📞 ${escHtml(pc.phone)}</div>` : ''}${pc.email ? `<div class="fx" style="margin-bottom:6px;">✉️ ${escHtml(pc.email)}</div>` : ''}${pc.address ? `<div class="fx" style="margin-bottom:6px;">📍 ${escHtml(pc.address)}</div>` : ''}${pc.hours ? `<div class="fx" style="margin-bottom:6px;white-space:pre-line;">🕒 ${escHtml(pc.hours)}</div>` : ''}${pcSocial.length ? `<div class="fx">${pcSocial.map(k => k.charAt(0).toUpperCase() + k.slice(1)).join(' · ')}</div>` : ''}</div>` : ''}
+${pcForm ? `<div class="fc" style="background:${theme.cardBg};color:${theme.text};"><div class="ft" style="margin-bottom:10px;">Send a message</div><div class="fx" style="opacity:.7;">Name · Email · Message</div><div class="fx" style="margin-top:8px;opacity:.7;">Messages go to your account email.</div></div>` : ''}
+</div>` : ''}</div>` : ''}
 <footer><div class="fn">${name}</div><div class="fc2">© ${new Date().getFullYear()} ${name}. All rights reserved.</div></footer>
 </body></html>`;
 }
@@ -3731,7 +3850,9 @@ async function editSite(uuid) {
       colorPrimary: data.colorPrimary || '#6C47FF',
       colorAccent: data.colorAccent || '#FF6B6B',
       colorButton: data.colorButton || '',
-      showTrustBar: data.showTrustBar !== false,
+      // Older sites had the bar on by default; keep it on only if they wrote their own items
+      showTrustBar: data.showTrustBar !== false && Boolean(data.trust1 || data.trust2 || data.trust3 || data.trust4),
+      contact: Object.assign({ phone:'', email:'', address:'', hours:'', facebook:'', instagram:'', tiktok:'', linkedin:'', form:false }, data.contact || {}),
       trust1: data.trust1 || '', trust2: data.trust2 || '', trust3: data.trust3 || '', trust4: data.trust4 || '',
       ctaHeadline: data.ctaHeadline || '', ctaSubtext: data.ctaSubtext || '',
       fontStyle: data.fontStyle || 'modern',
@@ -3794,6 +3915,7 @@ async function editSite(uuid) {
     document.getElementById('trust-4').value = state.trust4;
     document.getElementById('cta-headline').value = state.ctaHeadline;
     document.getElementById('cta-subtext').value = state.ctaSubtext;
+    fillContactFields(state.contact);
     document.getElementById('audience').value = state.audience;
     document.getElementById('problem').value = state.problem;
     document.getElementById('differentiator').value = state.differentiator;
@@ -3908,6 +4030,15 @@ function closeUpgradeModal() {
   document.getElementById('upgrade-modal').classList.remove('show');
 }
 
+// Landing-page pricing buttons: straight to checkout when signed in, otherwise
+// sign up first and then continue to checkout for the plan they picked.
+let pendingCheckoutPlan = null;
+function pricingCta(plan) {
+  if (authToken) { startCheckout(plan); return; }
+  pendingCheckoutPlan = plan;
+  openAuthModal('register');
+}
+
 async function startCheckout(plan) {
   if (!authToken) { openAuthModal('register'); return; }
   const btn = document.querySelector(`#upgrade-modal .btn-upgrade[onclick="startCheckout('${plan}')"]`);
@@ -3948,6 +4079,27 @@ function renderPlanAlert(me) {
     msg = '<strong>Your Pro plan has ended.</strong> Your account now allows ' + limitText + '. Delete ' + sites + ' by ' + fmtPlanDate(me.overLimitDeadline) + ', or reactivate Pro to keep them all. After that date your account will be restricted.';
   }
   wrap.innerHTML = '<div class="plan-alert"><div>' + msg + '</div><button onclick="openPlanModal()">Reactivate Pro</button></div>';
+}
+
+function renderVerifyAlert(me) {
+  const wrap = document.getElementById('verify-alert-wrap');
+  if (!wrap) return;
+  if (!me || me.emailVerified || !me.emailConfirmationOn) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<div class="plan-alert"><div><strong>Please confirm your email.</strong> We sent a link to ' + escHtml(me.email) +
+    '. Confirming it means you can always reset your password.</div><button id="verify-resend-btn" onclick="resendVerification()">Resend email</button></div>';
+}
+
+async function resendVerification() {
+  const btn = document.getElementById('verify-resend-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    const res = await fetch('/api/auth/resend-verification', { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not send');
+    if (btn) btn.textContent = data.alreadyVerified ? 'Already confirmed ✓' : 'Sent ✓ Check your inbox';
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+  }
 }
 
 function fmtPlanDate(iso) {
@@ -4034,7 +4186,7 @@ function renderPlanCards() {
 
   const subEl = document.getElementById('plan-sub');
   if (plan === 'free') subEl.textContent = 'Upgrade to Starter or Pro, or stay on Free. Your sites stay safe whichever you choose.';
-  else if (plan === 'starter') subEl.textContent = 'Switch to Pro for unlimited sites, your own domain and priority support, or stay on Starter. Starter is a one time purchase, so there is no need to downgrade. Your sites stay safe either way.';
+  else if (plan === 'starter') subEl.textContent = 'Switch to Pro for unlimited sites and your own domain, or stay on Starter. Starter is a one time purchase, so there is no need to downgrade. Your sites stay safe either way.';
   else if (cancelled) subEl.textContent = 'Your Pro plan runs until ' + ends + '. Reactivate Pro to keep it, or switch to Starter or Free. Your sites stay safe whichever you choose.';
   else subEl.textContent = 'You are on Pro. You can switch to Starter or Free at any time and keep Pro until the month you paid for ends. Your sites stay safe whichever you choose.';
 
@@ -4049,8 +4201,8 @@ function renderPlanCards() {
 
   document.getElementById('plan-cards').innerHTML =
     card('free', 'Free', '$0', ['1 site', 'Live preview', 'SiteSnap badge on your site'], free) +
-    card('starter', 'Starter', '$29<span> one time</span>', ['No "Built with SiteSnap" badge', 'All 6 design themes', 'Unlimited edits'], starter) +
-    card('pro', 'Pro', '$12<span>/month</span>', ['Everything in Starter', 'Unlimited sites', 'Your own domain', 'Automatic SSL certificate', 'Priority support'], pro);
+    card('starter', 'Starter', '$29<span> one time</span>', ['No "Built with SiteSnap" badge', '1 live site, unlimited edits', 'One payment, no subscription'], starter) +
+    card('pro', 'Pro', '$12<span>/month</span>', ['Everything in Starter', 'Unlimited sites', 'Your own domain', 'Automatic SSL certificate'], pro);
 }
 
 function setPlanMsg(text, ok) {
@@ -4409,8 +4561,8 @@ async function saveNewPassword() {
   const input = document.getElementById('new-password');
   const out = document.getElementById('set-password-result');
   const pw = (input?.value || '');
-  if (pw.length < 6) {
-    out.textContent = 'Please use at least 6 characters.';
+  if (pw.length < 8) {
+    out.textContent = 'Please use at least 8 characters.';
     out.style.color = 'var(--danger)';
     return;
   }
@@ -4424,6 +4576,8 @@ async function saveNewPassword() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed');
+    // Changing the password signs out other devices; keep this one signed in
+    if (data.token) { authToken = data.token; localStorage.setItem('ss_token', authToken); }
     input.value = '';
     out.textContent = '✓ Password set — you can now sign in from anywhere.';
     out.style.color = 'var(--success)';
@@ -4523,7 +4677,7 @@ async function saveAccountPassword() {
   const out = document.getElementById('acct-password-result');
   const input = document.getElementById('acct-password');
   const pw = input.value || '';
-  if (pw.length < 6) { out.textContent = 'Please use at least 6 characters.'; out.style.color = 'var(--danger)'; return; }
+  if (pw.length < 8) { out.textContent = 'Please use at least 8 characters.'; out.style.color = 'var(--danger)'; return; }
   out.textContent = 'Saving…';
   out.style.color = 'var(--text-muted)';
   try {
@@ -4534,8 +4688,9 @@ async function saveAccountPassword() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Could not update password');
+    if (data.token) { authToken = data.token; localStorage.setItem('ss_token', authToken); }
     input.value = '';
-    out.textContent = '✓ Password updated.';
+    out.textContent = '✓ Password updated. Any other devices have been signed out.';
     out.style.color = 'var(--success)';
   } catch (e) {
     out.textContent = '✗ ' + e.message;

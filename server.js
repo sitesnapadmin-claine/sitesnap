@@ -28,7 +28,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const Stripe = require('stripe');
-const paypal = require('./paypal')({ dbGet, dbRun, onProEnded: (userId) => planLimits.onProEnded(userId) });
+const paypal = require('./paypal')({
+  dbGet, dbRun,
+  onProEnded: (userId) => planLimits.onProEnded(userId),
+  recordPayment: (p) => recordPayment(p),
+  notifyAdmin: (subject, text) => notifyAdmin(subject, text),
+});
 
 // ── CLOUDINARY (optional — falls back to local disk if not configured) ─────────
 let cloudinary = null;
@@ -129,6 +134,8 @@ const CNAME_TARGET =
   process.env.RAILWAY_PUBLIC_DOMAIN ||
   'sitesnap-production-b50b.up.railway.app';
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
+// Stripe is legacy. Its routes only work when it is the chosen provider and has a key.
+const STRIPE_ENABLED = (process.env.PAYMENT_PROVIDER || '').toLowerCase() !== 'paypal' && Boolean(process.env.STRIPE_SECRET_KEY);
 
 // Only this account can read /api/_diag. Unset = the endpoint doesn't exist.
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
@@ -335,11 +342,11 @@ const RESET_FROM_EMAIL = process.env.RESET_FROM_EMAIL || '';
 const EMAIL_READY = Boolean(RESEND_API_KEY && RESET_FROM_EMAIL);
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // one hour
 
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, replyTo }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: RESET_FROM_EMAIL, to: [to], subject, html }),
+    body: JSON.stringify({ from: RESET_FROM_EMAIL, to: [to], subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
@@ -370,6 +377,28 @@ function notifyNewSignup(user) {
   return sendEmail(buildSignupNotification(user))
     .then(() => true)
     .catch(e => { console.error('signup notification error:', e.message); return false; });
+}
+
+// Alerts the owner about things that need a person, such as a payment dispute
+function notifyAdmin(subject, text) {
+  console.warn('ADMIN ALERT:', subject, '-', text);
+  if (!EMAIL_READY || !SIGNUP_NOTIFY_EMAIL) return Promise.resolve(false);
+  return sendEmail({ to: SIGNUP_NOTIFY_EMAIL, subject, html: `<p>${escHtml(text)}</p>` })
+    .then(() => true)
+    .catch(e => { console.error('admin alert email error:', e.message); return false; });
+}
+
+// The ledger of money actually received (and refunded). PayPal can send the
+// same event more than once, so the external id makes each one count once.
+async function recordPayment({ userId, provider, kind, amount, currency, externalId }) {
+  const cents = Math.round(Number(amount) * 100);
+  if (!externalId || !Number.isFinite(cents)) return;
+  try {
+    await dbRun(insertIgnore('payments', 'user_id, provider, kind, amount_cents, currency, external_id', '?, ?, ?, ?, ?, ?'),
+      userId || null, provider, kind, cents, String(currency || 'USD'), String(externalId));
+  } catch (e) {
+    console.error('recordPayment error:', e.message);
+  }
 }
 
 // Only the hash is stored, so a database leak can't be used to seize accounts.
@@ -530,6 +559,20 @@ async function initDb() {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires BIGINT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS verify_token_hash TEXT',
+      'ALTER TABLE sites ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0',
+      `CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        provider TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        external_id TEXT UNIQUE NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )`,
     ]) { try { await pgPool.query(sql); } catch (e) { console.warn('migration skipped:', e.message); } }
     console.log('✓ Using Postgres — site data survives redeploys');
     return;
@@ -571,6 +614,20 @@ async function initDb() {
     'ALTER TABLE users ADD COLUMN reset_token_hash TEXT',
     'ALTER TABLE users ADD COLUMN reset_expires INTEGER',
     'ALTER TABLE users ADD COLUMN name TEXT',
+    'ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0',
+    'ALTER TABLE users ADD COLUMN email_verified INTEGER',
+    'ALTER TABLE users ADD COLUMN verify_token_hash TEXT',
+    'ALTER TABLE sites ADD COLUMN views INTEGER DEFAULT 0',
+    `CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      provider TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      external_id TEXT UNIQUE NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
   ].forEach(sql => { try { sqliteDb.exec(sql); } catch (_) {} });
   console.warn('⚠️  Using SQLite — on an ephemeral host, saved sites are LOST on every redeploy.');
   console.warn('   Attach a Postgres service so DATABASE_URL is set.');
@@ -683,10 +740,7 @@ app.use(async (req, res, next) => {
     // Custom domain: only for hosts that are not our own
     if (host && !isReservedHost(host)) {
       const site = await dbGet('SELECT uuid, data FROM sites WHERE custom_domain = ?', host);
-      if (site) {
-        const data = JSON.parse(site.data);
-        return sendSite(res, await buildWebsite(data, site.uuid, `https://${host}`));
-      }
+      if (site) return serveSiteHost(req, res, next, site, `https://${host}`);
     }
 
     // Subdomain: exactly one label in front of our own domain (yourbrand.site-snap.app),
@@ -696,16 +750,38 @@ app.use(async (req, res, next) => {
       : (host.endsWith('.localhost') ? host.slice(0, -'.localhost'.length) : '');
     if (subMatch && !subMatch.includes('.') && !RESERVED_SUBDOMAINS.has(subMatch)) {
       const site = await dbGet('SELECT uuid, data FROM sites WHERE subdomain = ?', subMatch);
-      if (site) {
-        const data = JSON.parse(site.data);
-        return sendSite(res, await buildWebsite(data, site.uuid, BASE_URL));
-      }
+      if (site) return serveSiteHost(req, res, next, site, `https://${host}`);
     }
 
     next();
   } catch (e) {
     next(e);
   }
+});
+
+// A customer's own address serves their one-page site, plus the files search
+// engines ask for. Other paths get a 404 instead of a copy of the page.
+async function serveSiteHost(req, res, next, site, origin) {
+  if (req.path === '/robots.txt') {
+    return res.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
+  }
+  if (req.path === '/sitemap.xml') {
+    return res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${escHtml(origin)}/</loc></url></urlset>\n`);
+  }
+  if (req.path.startsWith('/uploads/')) return next();
+  if (req.path !== '/' && req.path !== '/index.html') return res.status(404).send(notFoundHtml());
+  countView(site.uuid, req);
+  return sendSite(res, await buildWebsite(JSON.parse(site.data), site.uuid, origin));
+}
+
+// Search engines: index the marketing page, keep the app's private areas and
+// customer preview links (which live on their own domains) out.
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nDisallow: /billing/\nDisallow: /reset-password\nDisallow: /verify-email\nSitemap: ${BASE_URL}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml', (req, res) => {
+  const urls = ['/', '/terms', '/privacy'].map(u => `<url><loc>${escHtml(BASE_URL + u)}</loc></url>`).join('');
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>\n`);
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -724,7 +800,11 @@ async function requireAuth(req, res, next) {
   try {
     // On an ephemeral host the user row can vanish — restore it from the JWT so
     // plan lookups keep working. (Harmless once Postgres makes data durable.)
-    const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id FROM users WHERE id = ?', req.user.id);
+    const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id, token_version FROM users WHERE id = ?', req.user.id);
+    // A password change bumps token_version, which signs out every other device
+    if (exists && Number(req.user.tv || 0) !== Number(exists.token_version || 0)) {
+      return res.status(401).json({ error: 'Your session has ended. Please sign in again.' });
+    }
     // A cancelled PayPal Pro customer keeps Pro until the month they paid for ends, then drops back
     if (exists && exists.paypal_access_until && !exists.paypal_subscription_id) await paypal.expireIfDue(req.user.id);
     if (!exists && USE_PG) {
@@ -753,6 +833,44 @@ async function requireAuth(req, res, next) {
     next();
   } catch (e) {
     next(e);
+  }
+}
+
+// Every login token goes through here. "tv" is the account's token_version:
+// changing the password bumps it, so tokens issued before the change stop working.
+function issueToken({ id, email, plan, tv }) {
+  return jwt.sign({ id, email, plan: plan || 'free', tv: Number(tv || 0) }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+const MIN_PASSWORD = 8;
+function passwordProblem(password) {
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters`;
+  if (password.length > 200) return 'That password is too long';
+  return null;
+}
+
+// ── EMAIL CONFIRMATION ─────────────────────────────────────────────────────────
+// email_verified: 1 confirmed, 0 waiting, NULL for accounts made before this
+// existed (treated as confirmed so nobody old gets nagged). It never blocks
+// using the app; it only shows a reminder and keeps reset emails accurate.
+async function sendVerificationEmail(userId, email) {
+  if (!EMAIL_READY) return false;
+  const token = crypto.randomBytes(32).toString('hex');
+  await dbRun('UPDATE users SET email_verified = 0, verify_token_hash = ? WHERE id = ?', hashToken(token), userId);
+  const link = `${BASE_URL}/verify-email?token=${token}`;
+  try {
+    await sendEmail({
+      to: email,
+      subject: 'Confirm your email for SiteSnap',
+      html: `<p>Welcome to SiteSnap!</p>
+             <p>Please confirm this is your email address so you can always get back into your account:</p>
+             <p><a href="${escHtml(link)}">Confirm my email</a></p>
+             <p>If you didn't create a SiteSnap account, you can ignore this email.</p>`,
+    });
+    return true;
+  } catch (e) {
+    console.error('verification email error:', e.message);
+    return false;
   }
 }
 
@@ -785,8 +903,8 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.length > 254) {
     return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
   }
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  if (password.length > 200) return res.status(400).json({ error: 'That password is too long' });
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
   try {
     const hash = await bcrypt.hash(password, 10);
     // RETURNING works in both Postgres and modern SQLite, so the new id comes
@@ -795,10 +913,12 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
       'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?) RETURNING id',
       email.toLowerCase().trim(), hash, String((req.body || {}).name || '').trim().slice(0, 100) || null
     );
-    const token = jwt.sign({ id: row.id, email: email.toLowerCase(), plan: 'free' }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, email: email.toLowerCase(), plan: 'free' });
+    const cleanEmail = email.toLowerCase().trim();
+    const token = issueToken({ id: row.id, email: cleanEmail, plan: 'free', tv: 0 });
+    res.json({ token, email: cleanEmail, plan: 'free' });
     // Sent after the reply, so a slow email provider never slows down sign up.
-    notifyNewSignup({ name: req.body.name, email: email.toLowerCase().trim() });
+    notifyNewSignup({ name: req.body.name, email: cleanEmail });
+    sendVerificationEmail(row.id, cleanEmail).catch(() => {});
   } catch (e) {
     if (isUniqueViolation(e)) return res.status(409).json({ error: 'That email is already registered' });
     res.status(500).json({ error: 'Registration failed. Please try again.' });
@@ -824,14 +944,14 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
-  const token = jwt.sign({ id: user.id, email: user.email, plan: user.plan || 'free' }, JWT_SECRET, { expiresIn: '30d' });
+  const token = issueToken({ id: user.id, email: user.email, plan: user.plan, tv: user.token_version });
   res.json({ token, email: user.email, plan: user.plan || 'free' });
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
-  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, created_at, password_hash FROM users WHERE id = ?', req.user.id);
+  const user = await dbGet('SELECT id, email, name, plan, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, created_at, password_hash, email_verified FROM users WHERE id = ?', req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const { password_hash, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, ...safe } = user;
+  const { password_hash, stripe_customer_id, paypal_subscription_id, paypal_order_id, paypal_access_until, email_verified, ...safe } = user;
   // Used by the "Change plan" screen: is Pro renewing, has it been cancelled (and until when), does the customer own Starter
   const planEndsAt = !paypal_subscription_id && paypal_access_until && Date.parse(paypal_access_until) > Date.now()
     ? new Date(paypal_access_until).toISOString() : null;
@@ -850,8 +970,55 @@ app.get('/api/me', requireAuth, async (req, res) => {
     autoRenews: Boolean(paypal_subscription_id) || (safe.plan === 'pro' && Boolean(stripe_customer_id)),
     planEndsAt,
     ownsStarter: Boolean(paypal_order_id) || safe.plan === 'starter',
+    // NULL = account from before email confirmation existed
+    emailVerified: email_verified == null || Number(email_verified) === 1,
+    emailConfirmationOn: EMAIL_READY,
   });
 });
+
+const verifyResendLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
+app.post('/api/auth/resend-verification', verifyResendLimiter, requireAuth, async (req, res) => {
+  if (!EMAIL_READY) return res.status(503).json({ error: 'Email isn\'t switched on yet.' });
+  const user = await dbGet('SELECT email, email_verified FROM users WHERE id = ?', req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.email_verified == null || Number(user.email_verified) === 1) return res.json({ ok: true, alreadyVerified: true });
+  const sent = await sendVerificationEmail(req.user.id, user.email);
+  if (!sent) return res.status(502).json({ error: 'Could not send the email just now. Please try again shortly.' });
+  res.json({ ok: true });
+});
+
+app.get('/verify-email', async (req, res) => {
+  const token = String(req.query.token || '');
+  let ok = false;
+  if (token) {
+    const user = await dbGet('SELECT id FROM users WHERE verify_token_hash = ?', hashToken(token));
+    if (user) {
+      await dbRun('UPDATE users SET email_verified = 1, verify_token_hash = NULL WHERE id = ?', user.id);
+      ok = true;
+    }
+  }
+  res.status(ok ? 200 : 400).send(simplePageHtml(
+    ok ? 'Email confirmed' : 'Link not valid',
+    ok ? '✅' : '⚠️',
+    ok ? 'Thanks! Your email address is confirmed.' : 'This confirmation link is invalid or was already used. Sign in and use “Resend email” to get a new one.',
+    'Go to SiteSnap'
+  ));
+});
+
+// A small branded page used for confirmations, billing results and errors
+function simplePageHtml(title, icon, message, buttonLabel = 'Back to SiteSnap', extraHead = '') {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escHtml(title)} — SiteSnap</title>${extraHead}
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#F0EBFF,#EEF2FF);padding:16px}
+.box{text-align:center;background:#fff;border-radius:24px;padding:48px 32px;box-shadow:0 12px 48px rgba(108,71,255,.15);max-width:440px;width:100%}
+.icon{font-size:48px;margin-bottom:16px}h1{font-size:24px;font-weight:800;color:#1A1A2E;margin-bottom:10px}
+p{font-size:15px;color:#4B5563;line-height:1.55;margin-bottom:24px}
+a.btn{display:inline-block;padding:12px 28px;background:#6C47FF;color:#fff;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px}</style>
+</head><body><main class="box"><div class="icon" aria-hidden="true">${icon}</div><h1>${escHtml(title)}</h1>
+<p>${escHtml(message)}</p><a class="btn" href="/">${escHtml(buttonLabel)}</a></main></body></html>`;
+}
 
 // ── ACCOUNT: update profile (name / email) ─────────────────────────────────────
 app.put('/api/account/profile', requireAuth, async (req, res) => {
@@ -862,13 +1029,16 @@ app.put('/api/account/profile', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'That doesn\'t look like a valid email address' });
   }
   try {
+    const before = await dbGet('SELECT email, plan, token_version FROM users WHERE id = ?', req.user.id);
     await dbRun('UPDATE users SET name = ?, email = ? WHERE id = ?', name, email, req.user.id);
     // Email is part of the JWT payload (used for admin checks and Stripe
     // customer lookups elsewhere), so a changed email needs a fresh token —
     // otherwise the old address would keep acting as the identity until the
     // 30-day token expires.
-    const newToken = jwt.sign({ id: req.user.id, email, plan: req.user.plan }, JWT_SECRET, { expiresIn: '30d' });
+    const newToken = issueToken({ id: req.user.id, email, plan: before?.plan, tv: before?.token_version });
     res.json({ ok: true, name, email, token: newToken });
+    // A new address needs confirming again
+    if (before && before.email !== email) sendVerificationEmail(req.user.id, email).catch(() => {});
   } catch (e) {
     if (isUniqueViolation(e)) return res.status(409).json({ error: 'That email is already in use by another account' });
     console.error('update profile error:', e.message);
@@ -892,6 +1062,11 @@ app.delete('/api/account', requireAuth, async (req, res) => {
     if (user?.stripe_subscription_id) {
       try { await stripe.subscriptions.cancel(user.stripe_subscription_id); }
       catch (e) { console.warn('account delete: subscription cancel failed (continuing):', e.message); }
+    }
+    // Release connected domains so they stop pointing at us and free the quota
+    const domains = await dbAll('SELECT railway_domain_id FROM sites WHERE user_id = ? AND railway_domain_id IS NOT NULL', req.user.id);
+    for (const d of domains) {
+      try { await removeDomain(d.railway_domain_id); } catch (e) { console.warn('account delete: domain removal failed (continuing):', e.message); }
     }
     await dbRun('DELETE FROM sites WHERE user_id = ?', req.user.id);
     await dbRun('DELETE FROM users WHERE id = ?', req.user.id);
@@ -966,13 +1141,14 @@ app.get('/api/_diag', async (req, res) => {
 // Requires a valid session, so possession of the JWT is the proof of identity.
 app.post('/api/auth/set-password', requireAuth, async (req, res) => {
   const { password } = req.body || {};
-  if (!password || String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
   try {
     const hash = await bcrypt.hash(String(password), 10);
-    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', hash, req.user.id);
-    res.json({ ok: true });
+    // Bumping token_version signs out every other device; this one gets a fresh token
+    await dbRun('UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?', hash, req.user.id);
+    const u = await dbGet('SELECT email, plan, token_version FROM users WHERE id = ?', req.user.id);
+    res.json({ ok: true, token: issueToken({ id: req.user.id, email: u.email, plan: u.plan, tv: u.token_version }) });
   } catch (e) {
     console.error('set-password error:', e.message);
     res.status(500).json({ error: 'Could not update password' });
@@ -1019,9 +1195,8 @@ app.post('/api/auth/forgot-password', forgotPasswordLimiter, async (req, res) =>
 app.post('/api/auth/reset-password', forgotPasswordLimiter, async (req, res) => {
   const { token, password } = req.body || {};
   if (!token) return res.status(400).json({ error: 'Reset link is missing its token' });
-  if (!password || String(password).length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  }
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
   try {
     const user = await dbGet('SELECT id, reset_expires FROM users WHERE reset_token_hash = ?', hashToken(token));
     if (!user) return res.status(400).json({ error: 'This reset link is invalid or has already been used.' });
@@ -1030,7 +1205,9 @@ app.post('/api/auth/reset-password', forgotPasswordLimiter, async (req, res) => 
     }
     const hash = await bcrypt.hash(String(password), 10);
     // Clearing the token makes the link single-use
-    await dbRun('UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_expires = NULL WHERE id = ?',
+    // Also signs out every device, in case someone else had access. Clicking the
+    // emailed link proves the address, so it counts as a confirmation too.
+    await dbRun('UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_expires = NULL, token_version = COALESCE(token_version, 0) + 1, email_verified = 1 WHERE id = ?',
       hash, user.id);
     res.json({ ok: true });
   } catch (e) {
@@ -1038,6 +1215,8 @@ app.post('/api/auth/reset-password', forgotPasswordLimiter, async (req, res) => 
     res.status(500).json({ error: 'Could not reset the password' });
   }
 });
+
+const PLAUSIBLE_DOMAIN = (process.env.PLAUSIBLE_DOMAIN || '').trim();
 
 // ── PUBLIC CONFIG ──────────────────────────────────────────────────────────────
 // Lets the frontend hide features that can't currently work, so we never
@@ -1048,6 +1227,8 @@ app.get('/api/config', (req, res) => {
     subdomainSuffix: SUBDOMAINS_ENABLED ? APP_DOMAIN : null,
     customDomainsEnabled: true,
     passwordResetEnabled: EMAIL_READY,
+    contactFormEnabled: EMAIL_READY,
+    plausibleDomain: PLAUSIBLE_DOMAIN || null,
   });
 });
 
@@ -1059,8 +1240,14 @@ app.post('/api/sync-plan', requireAuth, async (req, res) => {
     const paypalUser = await dbGet('SELECT plan, paypal_subscription_id, paypal_order_id, paypal_access_until FROM users WHERE id = ?', req.user.id);
     if (paypalUser && (paypalUser.paypal_subscription_id || paypalUser.paypal_order_id || paypalUser.paypal_access_until)) {
       const keepPlan = paypalUser.plan || 'free';
-      const keepToken = jwt.sign({ id: req.user.id, email: req.user.email, plan: keepPlan }, JWT_SECRET, { expiresIn: '30d' });
+      const keepToken = issueToken({ id: req.user.id, email: req.user.email, plan: keepPlan, tv: req.user.tv });
       return res.json({ plan: keepPlan, token: keepToken });
+    }
+    if (!STRIPE_ENABLED) {
+      // PayPal is the payment provider: our database is already the truth
+      const row = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
+      const plan = (row && row.plan) || 'free';
+      return res.json({ plan, token: issueToken({ id: req.user.id, email: req.user.email, plan, tv: req.user.tv }) });
     }
     let plan = 'free';
     let customerId = null;
@@ -1093,7 +1280,7 @@ app.post('/api/sync-plan', requireAuth, async (req, res) => {
     }
 
     // Issue a new JWT with plan baked in so future redeployments preserve it
-    const newToken = jwt.sign({ id: req.user.id, email: req.user.email, plan }, JWT_SECRET, { expiresIn: '30d' });
+    const newToken = issueToken({ id: req.user.id, email: req.user.email, plan, tv: req.user.tv });
     res.json({ plan, token: newToken });
   } catch (e) {
     console.error('sync-plan error:', e.message);
@@ -1152,9 +1339,19 @@ app.post('/api/upload', uploadLimiter, (req, res, next) => {
 });
 
 // ── SITES ──────────────────────────────────────────────────────────────────────
+// Sites hold text and image links only (images are uploaded separately), so
+// anything far bigger than a real site is refused rather than stored.
+const MAX_SITE_BYTES = 300 * 1024;
+function siteDataProblem(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return 'Site data is required';
+  if (Buffer.byteLength(JSON.stringify(data)) > MAX_SITE_BYTES) return 'This site has too much content to save. Please shorten some text or remove some photos.';
+  return null;
+}
+
 app.post('/api/sites', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
-  if (!data) return res.status(400).json({ error: 'Site data is required' });
+  const dataProblem = siteDataProblem(data);
+  if (dataProblem) return res.status(400).json({ error: dataProblem });
   const user = await dbGet('SELECT plan FROM users WHERE id = ?', req.user.id);
   const plan = user?.plan || 'free';
 
@@ -1182,7 +1379,8 @@ app.post('/api/sites', requireAuth, blockIfRestricted, async (req, res) => {
 // ── UPDATE SITE ────────────────────────────────────────────────────────────────
 app.put('/api/sites/:uuid', requireAuth, blockIfRestricted, async (req, res) => {
   const { data } = req.body || {};
-  if (!data) return res.status(400).json({ error: 'Site data is required' });
+  const dataProblem = siteDataProblem(data);
+  if (dataProblem) return res.status(400).json({ error: dataProblem });
   const site = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!site) return res.status(404).json({ error: 'Site not found' });
   if (site.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
@@ -1193,11 +1391,11 @@ app.put('/api/sites/:uuid', requireAuth, blockIfRestricted, async (req, res) => 
 });
 
 app.get('/api/sites', requireAuth, async (req, res) => {
-  const rows = await dbAll('SELECT uuid, subdomain, custom_domain, created_at, updated_at, data FROM sites WHERE user_id = ? ORDER BY created_at DESC', req.user.id);
+  const rows = await dbAll('SELECT uuid, subdomain, custom_domain, created_at, updated_at, data, views FROM sites WHERE user_id = ? ORDER BY created_at DESC', req.user.id);
   res.json(rows.map(r => {
     const d = JSON.parse(r.data);
     return {
-      uuid: r.uuid, subdomain: r.subdomain, customDomain: r.custom_domain,
+      uuid: r.uuid, subdomain: r.subdomain, customDomain: r.custom_domain, views: Number(r.views || 0),
       created_at: r.created_at, updated_at: r.updated_at || r.created_at,
       bizName: d.bizName, industry: d.industry, location: d.location, designStyle: d.designStyle,
       // Dashboard site cards use the site's own palette for their header strip —
@@ -1214,9 +1412,13 @@ app.get('/api/sites/:uuid', async (req, res) => {
 });
 
 app.delete('/api/sites/:uuid', requireAuth, async (req, res) => {
-  const row = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', req.params.uuid);
+  const row = await dbGet('SELECT user_id, railway_domain_id FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.user_id !== req.user.id) return res.status(403).json({ error: 'Not your site' });
+  // Release the connected domain so it stops pointing at us and frees the quota
+  if (row.railway_domain_id) {
+    try { await removeDomain(row.railway_domain_id); } catch (e) { console.warn('site delete: domain removal failed (continuing):', e.message); }
+  }
   await dbRun('DELETE FROM sites WHERE uuid = ?', req.params.uuid);
   res.json({ ok: true });
 });
@@ -1431,6 +1633,7 @@ app.post('/api/checkout/:plan', requireAuth, async (req, res) => {
     }
   }
 
+  if (!STRIPE_ENABLED) return res.status(503).json({ error: 'Payments are not available right now. Please try again later.' });
   try {
     // Get or create Stripe customer
     let customerId = user.stripe_customer_id;
@@ -1488,6 +1691,7 @@ app.post('/api/billing/portal', requireAuth, async (req, res) => {
     }
     return res.status(400).json({ error: 'No billing account found', message: 'There is no active subscription to manage.' });
   }
+  if (!STRIPE_ENABLED) return res.status(400).json({ error: 'No billing account found', message: 'There is no active subscription to manage.' });
   try {
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
@@ -1548,6 +1752,48 @@ async function handleStripeWebhook(req, res) {
   res.json({ received: true });
 }
 
+// ── CONTACT FORM ON CUSTOMER SITES ─────────────────────────────────────────────
+// Visitors' messages are emailed to the site owner's account address. Sites
+// have no script, so this is a plain form post that redirects back with a
+// #contact-sent or #contact-error anchor the page shows with CSS.
+const contactLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
+  handler: (req, res) => res.status(429).send(simplePageHtml('Too many messages', '⏳', 'Please wait a few minutes before sending another message.', 'OK')) });
+app.post('/api/contact/:uuid', contactLimiter, express.urlencoded({ extended: false, limit: '20kb' }), async (req, res) => {
+  const row = await dbGet('SELECT s.uuid, s.data, s.custom_domain, s.subdomain, u.email AS owner_email FROM sites s LEFT JOIN users u ON u.id = s.user_id WHERE s.uuid = ?', req.params.uuid);
+  if (!row) return res.status(404).send(notFoundHtml());
+  // Always back to the site's own address, never to a caller-supplied URL
+  const home = siteUrlFor(row);
+  const back = /\/preview\//.test(home) ? home : home + '/';
+  const fail = () => res.redirect(303, back + '#contact-error');
+  const ok = () => res.redirect(303, back + '#contact-sent');
+  const b = req.body || {};
+  // Bots fill in every field, including the hidden one; pretend it worked
+  if (String(b.website || '').trim()) return ok();
+  const name = String(b.name || '').trim().slice(0, 100);
+  const email = String(b.email || '').trim().slice(0, 254);
+  const message = String(b.message || '').trim().slice(0, 3000);
+  let data = {};
+  try { data = JSON.parse(row.data); } catch (_) {}
+  const contact = normalizeContact(data.contact);
+  if (!EMAIL_READY || !contact.form || !row.owner_email) return fail();
+  if (!name || !message || !/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email)) return fail();
+  try {
+    await sendEmail({
+      to: row.owner_email,
+      replyTo: email,
+      subject: `New message from your website: ${name}`.slice(0, 150),
+      html: `<p>Someone sent a message through the contact form on <strong>${escHtml(data.bizName || 'your website')}</strong>.</p>
+<p><strong>Name:</strong> ${escHtml(name)}<br><strong>Email:</strong> ${escHtml(email)}</p>
+<p style="white-space:pre-wrap">${escHtml(message)}</p>
+<p style="color:#6B7280;font-size:13px">Reply to this email to answer them directly.</p>`,
+    });
+    ok();
+  } catch (e) {
+    console.error('contact form email error:', e.message);
+    fail();
+  }
+});
+
 // ── RESET PASSWORD PAGE ────────────────────────────────────────────────────────
 // Standalone page the email link opens. Kept separate from the wizard so it
 // works even for someone who can't sign in.
@@ -1579,7 +1825,7 @@ a{color:#6C47FF;font-weight:600;text-decoration:none}</style></head><body>
   <p class="sub">Pick something you'll remember. This link works once.</p>
   <label for="pw">New password</label>
   <div class="pw-wrap">
-    <input type="password" id="pw" placeholder="At least 6 characters" autocomplete="new-password">
+    <input type="password" id="pw" placeholder="At least 8 characters" autocomplete="new-password">
     <button type="button" class="pw-toggle" aria-label="Show password" onclick="togglePw()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
   </div>
   <button id="go" onclick="submitReset()">Save new password</button>
@@ -1601,7 +1847,7 @@ async function submitReset(){
   const pw = document.getElementById('pw').value;
   const msg = document.getElementById('msg');
   const btn = document.getElementById('go');
-  if (pw.length < 6){ msg.className='msg bad'; msg.textContent='Please use at least 6 characters.'; return; }
+  if (pw.length < 8){ msg.className='msg bad'; msg.textContent='Please use at least 8 characters.'; return; }
   btn.disabled = true; msg.className='msg'; msg.textContent='Saving…';
   try{
     const r = await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1641,7 +1887,9 @@ function requireAdmin(req, res, next) {
 app.post('/api/admin/login', adminLoginLimiter, (req, res) => {
   if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin dashboard is not configured yet (ADMIN_PASSWORD not set).' });
   const { password } = req.body || {};
-  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Incorrect password' });
+  const given = crypto.createHash('sha256').update(String(password || '')).digest();
+  const wanted = crypto.createHash('sha256').update(ADMIN_PASSWORD).digest();
+  if (!crypto.timingSafeEqual(given, wanted)) return res.status(401).json({ error: 'Incorrect password' });
   const token = jwt.sign({ admin: true }, JWT_SECRET, { expiresIn: '12h' });
   res.json({ token });
 });
@@ -1663,6 +1911,14 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
     const mrr = counts.pro * ((PLANS.pro?.price || 1200) / 100);
     const starterRevenue = counts.starter * ((PLANS.starter?.price || 2900) / 100);
 
+    // Money actually received, from the payments ledger (refunds are negative)
+    const sinceSql = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
+    const allTime = await dbGet('SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments');
+    const last30 = await dbGet(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments WHERE created_at >= ${sinceSql}`);
+    const recentPayments = await dbAll(
+      'SELECT p.kind, p.amount_cents, p.currency, p.created_at, u.email FROM payments p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.created_at DESC LIMIT 20'
+    );
+
     const sinceClause = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
     const signupRows = await dbAll(
       `SELECT DATE(created_at) as day, COUNT(*) as count FROM users WHERE created_at >= ${sinceClause} GROUP BY DATE(created_at) ORDER BY day`
@@ -1674,6 +1930,9 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       totalSites,
       mrr,
       starterRevenue,
+      revenueAllTime: Number(allTime?.c || 0) / 100,
+      revenueLast30Days: Number(last30?.c || 0) / 100,
+      recentPayments: recentPayments.map(r => ({ kind: r.kind, amount: Number(r.amount_cents) / 100, currency: r.currency, at: r.created_at, email: r.email || null })),
       signupsLast30Days: signupRows.map(r => ({ day: r.day, count: Number(r.count) })),
     });
   } catch (e) {
@@ -1726,7 +1985,8 @@ app.get('/admin', (req, res) => {
 app.get('/preview/:uuid', async (req, res) => {
   const row = await dbGet('SELECT data FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).send(notFoundHtml());
-  sendSite(res, await buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL));
+  countView(req.params.uuid, req);
+  sendSite(res, await buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL, { viaPreview: true }));
 });
 
 // ── BILLING PAGES ──────────────────────────────────────────────────────────────
@@ -1737,19 +1997,21 @@ app.get('/preview/:uuid', async (req, res) => {
 // truth for later events (renewals, cancellations) but is no longer a single
 // point of failure for the very first upgrade.
 app.get('/billing/success', async (req, res) => {
-  const plan = req.query.plan || 'starter';
+  const wanted = PLANS[req.query.plan] ? req.query.plan : null;
+  let confirmed = null; // { plan } once we know the payment really went through
+  if (paypal.enabled && req.query.provider === 'paypal') confirmed = await paypal.confirmReturn(req.query);
   const sessionId = req.query.session_id;
-  if (paypal.enabled && req.query.provider === 'paypal') await paypal.confirmReturn(req.query);
-  if (sessionId) {
+  if (sessionId && STRIPE_ENABLED) {
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       const userId = parseInt(session.metadata?.userId);
       const sessionPlan = session.metadata?.plan;
-      if (session.payment_status === 'paid' && userId && sessionPlan) {
+      if (session.payment_status === 'paid' && userId && PLANS[sessionPlan]) {
         await dbRun('UPDATE users SET plan = ? WHERE id = ?', sessionPlan, userId);
         if (session.subscription) {
           await dbRun('UPDATE users SET stripe_subscription_id = ? WHERE id = ?', session.subscription, userId);
         }
+        confirmed = { plan: sessionPlan };
         console.log(`✓ User ${userId} upgraded to ${sessionPlan} (confirmed via success redirect)`);
       }
     } catch (e) {
@@ -1757,37 +2019,27 @@ app.get('/billing/success', async (req, res) => {
       // Fall through — the webhook may still land and fix this up.
     }
   }
-  const planLabel = PLANS[plan]?.name || 'Starter';
-  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Welcome to ${planLabel}!</title>
-<meta http-equiv="refresh" content="4; url=/">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#F0EBFF,#EEF2FF);}
-.box{text-align:center;background:white;border-radius:24px;padding:56px 48px;box-shadow:0 12px 48px rgba(108,71,255,0.15);max-width:420px;width:90%;}
-.icon{font-size:56px;margin-bottom:20px;}h1{font-size:26px;font-weight:800;color:#1A1A2E;margin-bottom:10px;}
-p{font-size:15px;color:#6B7280;line-height:1.5;margin-bottom:24px;}
-.badge{display:inline-block;background:#EEE9FF;color:#6C47FF;font-size:13px;font-weight:700;padding:6px 16px;border-radius:20px;margin-bottom:8px;}
-a{display:inline-block;padding:12px 32px;background:#6C47FF;color:white;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px;}
-</style></head><body><div class="box">
-<div class="badge">Plan activated</div>
-<div class="icon">🎉</div>
-<h1>Welcome to ${planLabel}!</h1>
-<p>Your account has been upgraded. Redirecting you back to the app in a moment…</p>
-<a href="/">Go to my account →</a>
-</div></body></html>`);
+  if (confirmed) {
+    const label = PLANS[confirmed.plan]?.name || 'your new plan';
+    return res.send(simplePageHtml(`Welcome to ${label}!`, '🎉',
+      'Your payment is confirmed and your account has been upgraded. Taking you back to the app…',
+      'Go to my account', '<meta http-equiv="refresh" content="5; url=/">'));
+  }
+  // Not confirmed yet: PayPal can take a minute to tell us. Never claim success early.
+  const label = wanted ? PLANS[wanted].name : 'your plan';
+  res.send(simplePageHtml('Confirming your payment…', '⏳',
+    `Thanks! We're waiting for PayPal to confirm your ${label} payment. This usually takes under a minute. Your account updates on its own, so you can head back now. If it hasn't changed within an hour, email ${LEGAL_CONTACT_EMAIL}.`,
+    'Back to my account', '<meta http-equiv="refresh" content="20">'));
 });
 
 app.get('/billing/cancel', (req, res) => {
-  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Checkout cancelled</title>
-<meta http-equiv="refresh" content="3; url=/">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f9fafb;}
-.box{text-align:center;padding:48px;}.icon{font-size:40px;margin-bottom:16px;}h1{font-size:20px;color:#1A1A2E;margin-bottom:8px;}p{color:#6B7280;font-size:14px;}</style>
-</head><body><div class="box"><div class="icon">👋</div><h1>No worries!</h1><p>Checkout cancelled. Taking you back…</p></div></body></html>`);
+  res.send(simplePageHtml('Checkout cancelled', '👋', 'No worries, you weren\'t charged. Taking you back…', 'Back to SiteSnap',
+    '<meta http-equiv="refresh" content="3; url=/">'));
 });
 
 // ── LEGAL PAGES ─────────────────────────────────────────────────────────────────
 const LEGAL_CONTACT_EMAIL = 'sitesnap.admin@gmail.com';
-const LEGAL_UPDATED = 'August 8, 2026';
+const LEGAL_UPDATED = 'November 17, 2026';
 
 function legalPageHtml(title, bodyHtml) {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title} — SiteSnap</title>
@@ -1868,13 +2120,16 @@ app.get('/privacy', (req, res) => {
 <li><strong>Site content:</strong> the business details, text, and images you enter to build your website.</li>
 <li><strong>Payment information:</strong> handled entirely by PayPal, so we never see or store your card details ourselves.</li>
 <li><strong>Basic technical data:</strong> standard server logs (like IP address and request timestamps) generated by normal operation of the Service.</li>
+<li><strong>Visit counts:</strong> we count visits to the websites you publish so we can show you the total. We don't store who the visitors are.</li>
+<li><strong>Contact form messages:</strong> if you turn on the contact form, the name, email and message a visitor sends are emailed to you. We don't keep a copy.</li>
+${PLAUSIBLE_DOMAIN ? '<li><strong>Analytics:</strong> we use Plausible, a privacy-friendly analytics tool that uses no cookies and stores no personal data, to count visits to our own website.</li>' : ''}
 </ul>
 
 <h2>2. How we use it</h2>
 <ul>
 <li>To create and operate your account and publish your site.</li>
 <li>To process payments and manage subscriptions, through PayPal.</li>
-<li>To send account-related emails, such as password resets.</li>
+<li>To send account-related emails, such as email confirmation and password resets.</li>
 <li>To keep the Service secure and prevent abuse.</li>
 </ul>
 <p>We don't sell your personal information, and we don't use your site content for advertising.</p>
@@ -1912,16 +2167,11 @@ app.get('/privacy', (req, res) => {
 });
 
 function notFoundHtml() {
-  return `<!DOCTYPE html><html><head><title>Not Found — SiteSnap</title>
-<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f9fafb;}
-.box{text-align:center;}.logo{font-size:22px;font-weight:800;color:#6C47FF;margin-bottom:16px;}
-h1{font-size:18px;color:#1a1a2e;margin-bottom:8px;}p{color:#6b7280;font-size:14px;}a{color:#6C47FF;}</style></head>
-<body><div class="box"><div class="logo">SiteSnap</div><h1>Site not found</h1>
-<p>This link may be invalid. <a href="/">Build your own →</a></p></div></body></html>`;
+  return simplePageHtml('Page not found', '🔍', 'This link may be wrong, or the page has been removed.', 'Go to SiteSnap');
 }
 
 // ── WEBSITE BUILDER ────────────────────────────────────────────────────────────
-async function buildWebsite(s, uuid, baseUrl) {
+async function buildWebsite(s, uuid, baseUrl, opts = {}) {
   const name = s.bizName || 'Your Business';
   const tagline = s.tagline || `Serving ${s.industry || 'clients'} with passion and purpose`;
   const audience = s.audience || 'people who value quality';
@@ -1960,6 +2210,7 @@ async function buildWebsite(s, uuid, baseUrl) {
     .filter(g => g.url);
 
   const sec = s.sections || {};
+  const contact = normalizeContact(s.contact);
   const show = {
     about: sec.about !== false,
     services: sec.services !== false,
@@ -1968,6 +2219,15 @@ async function buildWebsite(s, uuid, baseUrl) {
     faq: sec.faq === true && faqs.length > 0,
     cta: sec.cta !== false,
   };
+  // The contact form emails the owner, so it only appears once email works
+  const showForm = Boolean(EMAIL_READY && contact.form && uuid);
+  show.contact = show.cta || contact.hasDetails || showForm;
+
+  // Trust badges only show what the owner wrote. Made-up claims like
+  // "5-star rated" on an unknown business would be misleading advertising.
+  const trustItems = [s.trust1, s.trust2, s.trust3, s.trust4]
+    .map(t => String(t || '').trim()).filter(Boolean);
+  const showTrust = s.showTrustBar !== false && trustItems.length > 0;
 
   // Resolved background config per section (null = keep the theme's flat colour)
   const bg = {
@@ -1998,7 +2258,7 @@ async function buildWebsite(s, uuid, baseUrl) {
   // A button pointing at a section the owner switched off would be a dead
   // anchor, so retarget it to a section that still exists (or drop the link).
   const sectionVisible = {
-    about: show.about, services: show.services, contact: show.cta,
+    about: show.about, services: show.services, contact: show.contact,
     gallery: show.gallery, faq: show.faq,
   };
   const safeCta = (key, fallbackLabel, fallbackSection) => {
@@ -2019,11 +2279,11 @@ async function buildWebsite(s, uuid, baseUrl) {
     show.services ? '<a href="#services">Services</a>' : '',
     show.gallery ? '<a href="#gallery">Gallery</a>' : '',
     show.faq ? '<a href="#faq">FAQ</a>' : '',
-    show.cta ? '<a href="#contact">Contact</a>' : '',
+    show.contact ? '<a href="#contact">Contact</a>' : '',
   ].join('');
 
   // Check if this site has badge removed (Starter+ user)
-  const siteRow = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', uuid);
+  const siteRow = await dbGet('SELECT user_id, custom_domain, subdomain FROM sites WHERE uuid = ?', uuid);
   let showBadge = true;
   if (siteRow?.user_id) {
     const user = await dbGet('SELECT plan FROM users WHERE id = ?', siteRow.user_id);
@@ -2038,7 +2298,7 @@ async function buildWebsite(s, uuid, baseUrl) {
   const aboutUrl = safeImageUrl(s.aboutUrl);
 
   const logoHtml = logoUrl
-    ? `<img src="${escHtml(logoUrl)}" alt=""${escHtml(name)}" style="max-height:52px;max-width:160px;object-fit:contain;">`
+    ? `<img src="${escHtml(logoUrl)}" alt="${escHtml(name)}" style="max-height:52px;max-width:160px;object-fit:contain;">`
     : `<div style="font-size:20px;font-weight:900;letter-spacing:-0.5px;color:${f.navText}">${escHtml(name)}</div>`;
 
   const heroImg = heroUrl
@@ -2049,11 +2309,17 @@ async function buildWebsite(s, uuid, baseUrl) {
     ? `<img src="${escHtml(aboutUrl)}" alt="About ${escHtml(name)}" style="width:100%;height:100%;object-fit:cover;border-radius:${f.imgRadius};">`
     : `<span style="font-size:72px;">${f.aboutEmoji}</span>`;
 
+  // Where this site really lives, so search engines and social cards use one address
+  const canonical = siteUrlFor(siteRow ? { ...siteRow, uuid } : { uuid });
+  // A preview link for a site that has its own address shouldn't compete with it in search
+  const noindex = Boolean(opts.viaPreview && canonical !== `${BASE_URL}/preview/${uuid}`);
+  const shareImage = [heroUrl, aboutUrl, logoUrl].find(u => /^https?:\/\//.test(u || '')) || '';
+
   const badge = showBadge ? `
     <div style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(15,15,30,0.92);backdrop-filter:blur(8px);
       padding:10px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <span style="font-size:13px;color:rgba(255,255,255,0.7);">Built with <strong style="color:#6C47FF;">SiteSnap</strong></span>
-      <a href="${baseUrl}" target="_blank" style="font-size:12px;font-weight:700;color:#6C47FF;text-decoration:none;
+      <a href="${escHtml(BASE_URL)}/?ref=badge" target="_blank" rel="noopener" style="font-size:12px;font-weight:700;color:#6C47FF;text-decoration:none;
         padding:6px 16px;background:rgba(108,71,255,0.15);border-radius:20px;border:1px solid rgba(108,71,255,0.3);">
         Create your own →</a>
     </div>` : '';
@@ -2063,7 +2329,16 @@ async function buildWebsite(s, uuid, baseUrl) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="${escHtml(tagline)}">
-<title>${escHtml(name)}</title>
+<title>${escHtml(name)}${s.location ? ' · ' + escHtml(s.location) : ''}</title>
+<link rel="canonical" href="${escHtml(canonical)}">
+${noindex ? '<meta name="robots" content="noindex">' : ''}
+<meta property="og:type" content="website">
+<meta property="og:title" content="${escHtml(name)}">
+<meta property="og:description" content="${escHtml(tagline)}">
+<meta property="og:url" content="${escHtml(canonical)}">
+${shareImage ? `<meta property="og:image" content="${escHtml(shareImage)}">` : ''}
+<meta name="twitter:card" content="${shareImage ? 'summary_large_image' : 'summary'}">
+${logoUrl && /^https?:/.test(logoUrl) ? `<link rel="icon" href="${escHtml(logoUrl)}">` : `<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='${f.btnBg}'/><text x='50' y='68' font-size='56' text-anchor='middle' fill='white' font-family='Arial,sans-serif' font-weight='bold'>${escHtml(name.trim().charAt(0).toUpperCase() || 'S')}</text></svg>`)}">`}
 <link href="https://fonts.googleapis.com/css2?family=${f.fontUrl}&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}html{scroll-behavior:smooth;}
@@ -2171,11 +2446,34 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
 .footer-name{font-size:18px;font-weight:800;color:${f.footerText};}
 .footer-copy{font-size:13px;color:${f.footerText};opacity:0.5;}
 .footer-links{display:flex;gap:24px;font-size:13px;color:${f.footerText};opacity:0.6;}
-@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}.faq-item summary{padding:16px 18px;}.faq-a{padding:0 18px 16px;}nav{padding:12px 16px;flex-wrap:nowrap;}.nav-links{display:none;}.nav-cta{padding:8px 16px;font-size:13px;white-space:nowrap;}footer{flex-direction:column;align-items:flex-start;gap:10px;}}
+.nav-toggle{position:absolute;opacity:0;pointer-events:none;}
+.nav-burger{display:none;cursor:pointer;font-size:24px;line-height:1;color:${f.navText};padding:6px 8px;border-radius:8px;user-select:none;}
+.nav-toggle:focus-visible + .nav-burger{outline:2px solid ${f.accent};outline-offset:2px;}
+/* ── CONTACT ─────────────────────────────────────── */
+.contact-wrap{max-width:960px;margin:48px auto 0;display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));text-align:left;}
+.contact-card{background:${f.cardBg};border:${f.cardBorder};border-radius:${f.cardRadius};padding:28px;color:${f.text};}
+.contact-card h3{font-family:${f.headFont};font-size:18px;font-weight:700;color:${f.headingColor};margin-bottom:14px;}
+.contact-line{display:flex;gap:10px;align-items:flex-start;font-size:15px;color:${f.subTextColor};margin-bottom:12px;line-height:1.5;word-break:break-word;}
+.contact-line a{color:${f.headingColor};font-weight:600;text-decoration:underline;text-underline-offset:3px;}
+.contact-hours{white-space:pre-line;}
+.contact-social{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+.contact-social a{font-size:13px;font-weight:700;padding:8px 14px;border-radius:${f.btnRadius};border:${f.cardBorder};color:${f.headingColor};}
+.contact-form label{display:block;font-size:13px;font-weight:600;color:${f.headingColor};margin:0 0 6px;}
+.contact-form input,.contact-form textarea{width:100%;font:inherit;font-size:15px;padding:12px 14px;border-radius:10px;border:1px solid rgba(127,127,127,.35);background:#fff;color:#111;margin-bottom:14px;}
+.contact-form textarea{min-height:120px;resize:vertical;}
+.contact-form .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;}
+.contact-form button{width:100%;justify-content:center;}
+.form-msg{display:none;margin:0 auto 24px;max-width:960px;padding:14px 18px;border-radius:10px;font-weight:600;font-size:15px;text-align:center;}
+.form-msg:target{display:block;}
+#contact-sent{background:#DCFCE7;color:#14532D;}
+#contact-error{background:#FEE2E2;color:#7F1D1D;}
+.contact-plain{background:${f.aboutBg};text-align:center;}
+@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}.faq-item summary{padding:16px 18px;}.faq-a{padding:0 18px 16px;}nav{padding:12px 16px;flex-wrap:nowrap;gap:10px;}.nav-burger{display:block;order:3;}.nav-links{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:0;background:${f.navBg};border-bottom:${f.navBorder || '1px solid rgba(127,127,127,.2)'};opacity:1;padding:8px 0;box-shadow:0 12px 24px rgba(0,0,0,.12);}.nav-links a{padding:14px 24px;font-size:16px;}.nav-toggle:checked ~ .nav-links{display:flex;}.nav-cta{padding:8px 16px;font-size:13px;white-space:nowrap;margin-left:auto;}footer{flex-direction:column;align-items:flex-start;gap:10px;}}
 @media(max-width:420px){nav{padding:10px 14px;}.nav-cta{padding:7px 12px;font-size:12px;}}
 </style></head><body>
 <nav>
   ${logoHtml}
+  ${navLinksHtml ? `<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Open menu"><label for="nav-toggle" class="nav-burger" aria-hidden="true">&#9776;</label>` : ''}
   <div class="nav-links">${navLinksHtml}</div>
   ${renderCta(safeCta('nav',cta,'contact'), cta, 'nav-cta')}
 </nav>
@@ -2188,11 +2486,8 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
   </div>
   <div class="hero-img-wrap">${heroImg}</div>
 </div>
-${s.showTrustBar !== false ? `<div class="trust-bar">
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust1 || 'Trusted by clients worldwide')}</div>
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust2 || '5-star rated')}</div>
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust3 || '100% satisfaction')}</div>
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust4 || s.location || 'Available online')}</div>
+${showTrust ? `<div class="trust-bar">
+  ${trustItems.map(t => `<div class="trust-item"><div class="trust-dot"></div>${escHtml(t)}</div>`).join('')}
 </div>` : ''}
 ${show.about ? `<section class="about" id="about">
   <div class="about-grid">
@@ -2253,14 +2548,35 @@ ${show.faq ? `<section class="faq-section" id="faq">
     </details>`).join('')}
   </div>
 </section>` : ''}
-${show.cta ? `<section class="cta-section" id="contact">
-  <h2>${escHtml(s.ctaHeadline || 'Ready to get started?')}</h2>
-  <p>${escHtml(s.ctaSubtext || ('Join the people already working with ' + name + '. Your journey begins with one simple step.'))}</p>
-  ${renderCta(safeCta('final',cta+' →','contact'), cta+' →', 'btn-p', `background:${f.ctaSectionBtn};color:${f.ctaSectionBtnText};font-size:17px;padding:18px 44px;`)}
+${show.contact ? `<section class="${show.cta ? 'cta-section' : 'contact-plain'}" id="contact">
+  <div class="form-msg" id="contact-sent" role="status">Thanks! Your message was sent. We'll get back to you soon.</div>
+  <div class="form-msg" id="contact-error" role="alert">Sorry, your message couldn't be sent. Please try again, or use the details below.</div>
+  ${show.cta ? `<h2>${escHtml(s.ctaHeadline || 'Ready to get started?')}</h2>
+  <p>${escHtml(s.ctaSubtext || ('Get in touch with ' + name + ' today.'))}</p>
+  ${renderCta(safeCta('final',cta+' →','contact'), cta+' →', 'btn-p', `background:${f.ctaSectionBtn};color:${f.ctaSectionBtnText};font-size:17px;padding:18px 44px;`)}`
+  : `<div class="eyebrow">Contact</div><div class="section-title">Get in touch</div>`}
+  ${(contact.hasDetails || showForm) ? `<div class="contact-wrap">
+    ${contact.hasDetails ? `<div class="contact-card">
+      <h3>Contact details</h3>
+      ${contact.phone ? `<div class="contact-line"><span aria-hidden="true">📞</span><a href="tel:${escHtml(contact.phoneHref)}">${escHtml(contact.phone)}</a></div>` : ''}
+      ${contact.email ? `<div class="contact-line"><span aria-hidden="true">✉️</span><a href="mailto:${escHtml(contact.email)}">${escHtml(contact.email)}</a></div>` : ''}
+      ${contact.address ? `<div class="contact-line"><span aria-hidden="true">📍</span><a href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(contact.address)}" target="_blank" rel="noopener">${escHtml(contact.address)}</a></div>` : ''}
+      ${contact.hours ? `<div class="contact-line"><span aria-hidden="true">🕒</span><span class="contact-hours">${escHtml(contact.hours)}</span></div>` : ''}
+      ${contact.socials.length ? `<div class="contact-social">${contact.socials.map(x => `<a href="${escHtml(x.url)}" target="_blank" rel="noopener">${escHtml(x.label)}</a>`).join('')}</div>` : ''}
+    </div>` : ''}
+    ${showForm ? `<form class="contact-card contact-form" method="post" action="${escHtml(BASE_URL)}/api/contact/${escHtml(uuid)}">
+      <h3>Send a message</h3>
+      <label for="cf-name">Your name</label><input id="cf-name" name="name" required maxlength="100" autocomplete="name">
+      <label for="cf-email">Your email</label><input id="cf-email" name="email" type="email" required maxlength="254" autocomplete="email">
+      <label for="cf-message">Message</label><textarea id="cf-message" name="message" required maxlength="3000"></textarea>
+      <div class="hp" aria-hidden="true"><label for="cf-website">Leave this empty</label><input id="cf-website" name="website" tabindex="-1" autocomplete="off"></div>
+      <button type="submit" class="btn-p">Send message</button>
+    </form>` : ''}
+  </div>` : ''}
 </section>` : ''}
 <footer>
   <div class="footer-name">${escHtml(name)}</div>
-  <div class="footer-links">${show.cta ? '<a href="#contact">Contact</a>' : ''}</div>
+  <div class="footer-links">${contact.phone ? `<a href="tel:${escHtml(contact.phoneHref)}">${escHtml(contact.phone)}</a>` : ''}${contact.email ? `<a href="mailto:${escHtml(contact.email)}">${escHtml(contact.email)}</a>` : ''}${show.contact ? '<a href="#contact">Contact</a>' : ''}</div>
   <div class="footer-copy">© ${new Date().getFullYear()} ${escHtml(name)}. All rights reserved.</div>
 </footer>
 ${badge}
@@ -2268,6 +2584,56 @@ ${badge}
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────
+// The address a site is really published at: its own domain, then its
+// subdomain, then the preview link.
+function siteUrlFor(row) {
+  if (row && row.custom_domain) return `https://${row.custom_domain}`;
+  if (row && row.subdomain && SUBDOMAINS_ENABLED) return `https://${row.subdomain}.${APP_DOMAIN}`;
+  return `${BASE_URL}/preview/${row && row.uuid}`;
+}
+
+// Cleans the owner's contact details. Links are rebuilt from scratch, so a
+// value can never become a javascript: link or break out of an attribute.
+function normalizeContact(raw) {
+  const c = (raw && typeof raw === 'object') ? raw : {};
+  const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
+  const phone = str(c.phone, 40);
+  const phoneHref = phone.replace(/[^\d+]/g, '');
+  let email = str(c.email, 254).replace(/^mailto:/i, '');
+  if (!/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email)) email = '';
+  const socials = [];
+  for (const [key, label] of [['facebook', 'Facebook'], ['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['linkedin', 'LinkedIn'], ['website', 'Website']]) {
+    let v = str(c[key], 300);
+    if (!v) continue;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(v) && !/^https?:\/\//i.test(v)) continue;
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v.replace(/^\/+/, '');
+    if (!/^https?:\/\/[^\s/$.?#"'<>][^\s"'<>]*$/i.test(v)) continue;
+    socials.push({ label, url: v });
+  }
+  const out = {
+    phone: phoneHref ? phone : '',
+    phoneHref,
+    email,
+    address: str(c.address, 200),
+    hours: str(c.hours, 300),
+    socials,
+    form: c.form === true,
+  };
+  out.hasDetails = Boolean(out.phone || out.email || out.address || out.hours || socials.length);
+  return out;
+}
+
+// Counts a page view for the owner's dashboard. Skips bots, previews the
+// owner opens from the app, and anything that isn't a real page load.
+const BOT_UA = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|curl|wget|python|headless|lighthouse/i;
+function countView(uuid, req) {
+  if (req.method !== 'GET') return;
+  if (BOT_UA.test(req.get('user-agent') || '')) return;
+  if ((req.get('purpose') || req.get('sec-purpose') || '').includes('prefetch')) return;
+  const ref = req.get('referer') || '';
+  if (ref && hostOf(ref) && OWN_HOSTS.has(hostOf(ref)) && !/\/preview\//.test(ref)) return; // opened from the SiteSnap app
+  dbRun('UPDATE sites SET views = COALESCE(views, 0) + 1 WHERE uuid = ?', uuid).catch(() => {});
+}
 // Customer sites are plain HTML and CSS with no scripts at all, so the policy
 // can forbid script outright. Even if some field were ever left unescaped,
 // injected code still could not run.
@@ -2278,7 +2644,7 @@ const SITE_CSP = [
   "font-src https://fonts.gstatic.com data:",
   "img-src * data: blob:",
   "base-uri 'none'",
-  "form-action 'none'",
+  `form-action ${new URL(BASE_URL).origin}`,
   "object-src 'none'",
 ].join('; ');
 
@@ -2433,6 +2799,16 @@ function heroHeadline(name, industry) {
   const map = {'Photography':`Capturing your story,<br><em>beautifully.</em>`,'Beauty & Wellness':`Feel your best,<br><em>inside &amp; out.</em>`,'Food & Beverage':`Made with love,<br><em>served with pride.</em>`,'Fashion & Apparel':`Style that speaks<br><em>for itself.</em>`,'Health & Fitness':`Your strongest self<br><em>starts here.</em>`,'Home & Interior':`Spaces you'll<br><em>love to live in.</em>`,'Art & Creative':`Art that moves<br><em>the world.</em>`,'Coaching & Consulting':`Clarity, strategy,<br><em>results.</em>`,'Real Estate':`Find the home<br><em>you deserve.</em>`,'Technology':`Built for the<br><em>future, today.</em>`,'Retail / E-commerce':`Shop smarter,<br><em>live better.</em>`,'Non-profit':`Making a difference,<br><em>together.</em>`};
   return map[industry] || `${escHtml(name)}:<br><em>Where quality meets purpose.</em>`;
 }
+// Each theme's own palette, used when the owner hasn't picked colours
+const THEME_DEFAULT_COLORS = {
+  'light-airy': { primary: '#8B5E3C', accent: '#C4966A' },
+  'bold-modern': { primary: '#6C47FF', accent: '#00C2FF' },
+  'earthy': { primary: '#5A7A3A', accent: '#C4A882' },
+  'luxe': { primary: '#C9A84C', accent: '#C9A84C' },
+  'playful': { primary: '#FF6B6B', accent: '#FFB347' },
+  'professional': { primary: '#1E3A5F', accent: '#2563EB' },
+};
+
 function getTheme(s) {
   // colorButton is a distinct choice from colorPrimary — set via its own swatch
   // in Step 2 ("Button color"). It falls back to Primary only when the person
@@ -2443,7 +2819,9 @@ function getTheme(s) {
   // Colours are written straight into the page's <style> block, so only a
   // plain hex value is ever allowed through — anything else could close the
   // style tag and inject script.
-  const p = safeColor(s.colorPrimary, '#6C47FF'), a = safeColor(s.colorAccent, '#FF6B6B'), btn = safeColor(s.colorButton, p), font = s.fontStyle||'modern', style = s.designStyle||'light-airy';
+  const style = s.designStyle||'light-airy';
+  const td = THEME_DEFAULT_COLORS[style] || THEME_DEFAULT_COLORS['light-airy'];
+  const p = safeColor(s.colorPrimary, td.primary), a = safeColor(s.colorAccent, td.accent), btn = safeColor(s.colorButton, p), font = s.fontStyle||'modern';
   const fm = {modern:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;700;800",bodyFont:"'Inter',sans-serif",heroWeight:800,heroTracking:'-1px'},elegant:{headFont:"'Playfair Display',serif",fontUrl:"Playfair+Display:wght@400;700",bodyFont:"'Inter',sans-serif",heroWeight:700,heroTracking:'-0.5px'},playful:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;800;900",bodyFont:"'Inter',sans-serif",heroWeight:900,heroTracking:'-2px'}};
   const f = fm[font]||fm.modern;
   const base = {...f,primary:p,accent:a,btnBg:btn};
@@ -2458,13 +2836,23 @@ function getTheme(s) {
   return themes[style]||themes['light-airy'];
 }
 
+// Anything no route answered: JSON for the API, a branded page for people
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  res.status(404).send(notFoundHtml());
+});
+
 // ── SENTRY ERROR HANDLING (must be registered after all routes) ────────────────
 if (Sentry) {
   Sentry.setupExpressErrorHandler(app);
 }
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  if (res.headersSent) return next(err);
+  if (req.path.startsWith('/api/') || req.accepts(['html', 'json']) === 'json') {
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+  res.status(500).send(simplePageHtml('Something went wrong', '⚠️', 'Sorry, something broke on our side. Please try again in a moment.', 'Back to SiteSnap'));
 });
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
@@ -2482,6 +2870,8 @@ process.on('uncaughtException', (err) => {
 // buildWebsite and the background helpers are exported for the test suite —
 // they're the logic behind what actually ships to a customer's visitors.
 module.exports = {
+  normalizeContact,
+  siteUrlFor,
   app, initDb, buttonHref, buildSignupNotification, safeColor, safeImageUrl, isReservedHost,
   buildWebsite, bgConfig, bgIsDark, bgTextVars, bgStyle, hexToRgb, rgba,
 };
