@@ -342,11 +342,11 @@ const RESET_FROM_EMAIL = process.env.RESET_FROM_EMAIL || '';
 const EMAIL_READY = Boolean(RESEND_API_KEY && RESET_FROM_EMAIL);
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // one hour
 
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, replyTo }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: RESET_FROM_EMAIL, to: [to], subject, html }),
+    body: JSON.stringify({ from: RESET_FROM_EMAIL, to: [to], subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
@@ -740,10 +740,7 @@ app.use(async (req, res, next) => {
     // Custom domain: only for hosts that are not our own
     if (host && !isReservedHost(host)) {
       const site = await dbGet('SELECT uuid, data FROM sites WHERE custom_domain = ?', host);
-      if (site) {
-        const data = JSON.parse(site.data);
-        return sendSite(res, await buildWebsite(data, site.uuid, `https://${host}`));
-      }
+      if (site) return serveSiteHost(req, res, next, site, `https://${host}`);
     }
 
     // Subdomain: exactly one label in front of our own domain (yourbrand.site-snap.app),
@@ -753,10 +750,7 @@ app.use(async (req, res, next) => {
       : (host.endsWith('.localhost') ? host.slice(0, -'.localhost'.length) : '');
     if (subMatch && !subMatch.includes('.') && !RESERVED_SUBDOMAINS.has(subMatch)) {
       const site = await dbGet('SELECT uuid, data FROM sites WHERE subdomain = ?', subMatch);
-      if (site) {
-        const data = JSON.parse(site.data);
-        return sendSite(res, await buildWebsite(data, site.uuid, BASE_URL));
-      }
+      if (site) return serveSiteHost(req, res, next, site, `https://${host}`);
     }
 
     next();
@@ -764,6 +758,21 @@ app.use(async (req, res, next) => {
     next(e);
   }
 });
+
+// A customer's own address serves their one-page site, plus the files search
+// engines ask for. Other paths get a 404 instead of a copy of the page.
+async function serveSiteHost(req, res, next, site, origin) {
+  if (req.path === '/robots.txt') {
+    return res.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
+  }
+  if (req.path === '/sitemap.xml') {
+    return res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${escHtml(origin)}/</loc></url></urlset>\n`);
+  }
+  if (req.path.startsWith('/uploads/')) return next();
+  if (req.path !== '/' && req.path !== '/index.html') return res.status(404).send(notFoundHtml());
+  countView(site.uuid, req);
+  return sendSite(res, await buildWebsite(JSON.parse(site.data), site.uuid, origin));
+}
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -1206,6 +1215,7 @@ app.get('/api/config', (req, res) => {
     subdomainSuffix: SUBDOMAINS_ENABLED ? APP_DOMAIN : null,
     customDomainsEnabled: true,
     passwordResetEnabled: EMAIL_READY,
+    contactFormEnabled: EMAIL_READY,
   });
 });
 
@@ -1368,11 +1378,11 @@ app.put('/api/sites/:uuid', requireAuth, blockIfRestricted, async (req, res) => 
 });
 
 app.get('/api/sites', requireAuth, async (req, res) => {
-  const rows = await dbAll('SELECT uuid, subdomain, custom_domain, created_at, updated_at, data FROM sites WHERE user_id = ? ORDER BY created_at DESC', req.user.id);
+  const rows = await dbAll('SELECT uuid, subdomain, custom_domain, created_at, updated_at, data, views FROM sites WHERE user_id = ? ORDER BY created_at DESC', req.user.id);
   res.json(rows.map(r => {
     const d = JSON.parse(r.data);
     return {
-      uuid: r.uuid, subdomain: r.subdomain, customDomain: r.custom_domain,
+      uuid: r.uuid, subdomain: r.subdomain, customDomain: r.custom_domain, views: Number(r.views || 0),
       created_at: r.created_at, updated_at: r.updated_at || r.created_at,
       bizName: d.bizName, industry: d.industry, location: d.location, designStyle: d.designStyle,
       // Dashboard site cards use the site's own palette for their header strip —
@@ -1729,6 +1739,48 @@ async function handleStripeWebhook(req, res) {
   res.json({ received: true });
 }
 
+// ── CONTACT FORM ON CUSTOMER SITES ─────────────────────────────────────────────
+// Visitors' messages are emailed to the site owner's account address. Sites
+// have no script, so this is a plain form post that redirects back with a
+// #contact-sent or #contact-error anchor the page shows with CSS.
+const contactLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
+  handler: (req, res) => res.status(429).send(simplePageHtml('Too many messages', '⏳', 'Please wait a few minutes before sending another message.', 'OK')) });
+app.post('/api/contact/:uuid', contactLimiter, express.urlencoded({ extended: false, limit: '20kb' }), async (req, res) => {
+  const row = await dbGet('SELECT s.uuid, s.data, s.custom_domain, s.subdomain, u.email AS owner_email FROM sites s LEFT JOIN users u ON u.id = s.user_id WHERE s.uuid = ?', req.params.uuid);
+  if (!row) return res.status(404).send(notFoundHtml());
+  // Always back to the site's own address, never to a caller-supplied URL
+  const home = siteUrlFor(row);
+  const back = /\/preview\//.test(home) ? home : home + '/';
+  const fail = () => res.redirect(303, back + '#contact-error');
+  const ok = () => res.redirect(303, back + '#contact-sent');
+  const b = req.body || {};
+  // Bots fill in every field, including the hidden one; pretend it worked
+  if (String(b.website || '').trim()) return ok();
+  const name = String(b.name || '').trim().slice(0, 100);
+  const email = String(b.email || '').trim().slice(0, 254);
+  const message = String(b.message || '').trim().slice(0, 3000);
+  let data = {};
+  try { data = JSON.parse(row.data); } catch (_) {}
+  const contact = normalizeContact(data.contact);
+  if (!EMAIL_READY || !contact.form || !row.owner_email) return fail();
+  if (!name || !message || !/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email)) return fail();
+  try {
+    await sendEmail({
+      to: row.owner_email,
+      replyTo: email,
+      subject: `New message from your website: ${name}`.slice(0, 150),
+      html: `<p>Someone sent a message through the contact form on <strong>${escHtml(data.bizName || 'your website')}</strong>.</p>
+<p><strong>Name:</strong> ${escHtml(name)}<br><strong>Email:</strong> ${escHtml(email)}</p>
+<p style="white-space:pre-wrap">${escHtml(message)}</p>
+<p style="color:#6B7280;font-size:13px">Reply to this email to answer them directly.</p>`,
+    });
+    ok();
+  } catch (e) {
+    console.error('contact form email error:', e.message);
+    fail();
+  }
+});
+
 // ── RESET PASSWORD PAGE ────────────────────────────────────────────────────────
 // Standalone page the email link opens. Kept separate from the wizard so it
 // works even for someone who can't sign in.
@@ -1920,7 +1972,8 @@ app.get('/admin', (req, res) => {
 app.get('/preview/:uuid', async (req, res) => {
   const row = await dbGet('SELECT data FROM sites WHERE uuid = ?', req.params.uuid);
   if (!row) return res.status(404).send(notFoundHtml());
-  sendSite(res, await buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL));
+  countView(req.params.uuid, req);
+  sendSite(res, await buildWebsite(JSON.parse(row.data), req.params.uuid, BASE_URL, { viaPreview: true }));
 });
 
 // ── BILLING PAGES ──────────────────────────────────────────────────────────────
@@ -2107,7 +2160,7 @@ h1{font-size:18px;color:#1a1a2e;margin-bottom:8px;}p{color:#6b7280;font-size:14p
 }
 
 // ── WEBSITE BUILDER ────────────────────────────────────────────────────────────
-async function buildWebsite(s, uuid, baseUrl) {
+async function buildWebsite(s, uuid, baseUrl, opts = {}) {
   const name = s.bizName || 'Your Business';
   const tagline = s.tagline || `Serving ${s.industry || 'clients'} with passion and purpose`;
   const audience = s.audience || 'people who value quality';
@@ -2146,6 +2199,7 @@ async function buildWebsite(s, uuid, baseUrl) {
     .filter(g => g.url);
 
   const sec = s.sections || {};
+  const contact = normalizeContact(s.contact);
   const show = {
     about: sec.about !== false,
     services: sec.services !== false,
@@ -2154,6 +2208,15 @@ async function buildWebsite(s, uuid, baseUrl) {
     faq: sec.faq === true && faqs.length > 0,
     cta: sec.cta !== false,
   };
+  // The contact form emails the owner, so it only appears once email works
+  const showForm = Boolean(EMAIL_READY && contact.form && uuid);
+  show.contact = show.cta || contact.hasDetails || showForm;
+
+  // Trust badges only show what the owner wrote. Made-up claims like
+  // "5-star rated" on an unknown business would be misleading advertising.
+  const trustItems = [s.trust1, s.trust2, s.trust3, s.trust4]
+    .map(t => String(t || '').trim()).filter(Boolean);
+  const showTrust = s.showTrustBar !== false && trustItems.length > 0;
 
   // Resolved background config per section (null = keep the theme's flat colour)
   const bg = {
@@ -2184,7 +2247,7 @@ async function buildWebsite(s, uuid, baseUrl) {
   // A button pointing at a section the owner switched off would be a dead
   // anchor, so retarget it to a section that still exists (or drop the link).
   const sectionVisible = {
-    about: show.about, services: show.services, contact: show.cta,
+    about: show.about, services: show.services, contact: show.contact,
     gallery: show.gallery, faq: show.faq,
   };
   const safeCta = (key, fallbackLabel, fallbackSection) => {
@@ -2205,11 +2268,11 @@ async function buildWebsite(s, uuid, baseUrl) {
     show.services ? '<a href="#services">Services</a>' : '',
     show.gallery ? '<a href="#gallery">Gallery</a>' : '',
     show.faq ? '<a href="#faq">FAQ</a>' : '',
-    show.cta ? '<a href="#contact">Contact</a>' : '',
+    show.contact ? '<a href="#contact">Contact</a>' : '',
   ].join('');
 
   // Check if this site has badge removed (Starter+ user)
-  const siteRow = await dbGet('SELECT user_id FROM sites WHERE uuid = ?', uuid);
+  const siteRow = await dbGet('SELECT user_id, custom_domain, subdomain FROM sites WHERE uuid = ?', uuid);
   let showBadge = true;
   if (siteRow?.user_id) {
     const user = await dbGet('SELECT plan FROM users WHERE id = ?', siteRow.user_id);
@@ -2224,7 +2287,7 @@ async function buildWebsite(s, uuid, baseUrl) {
   const aboutUrl = safeImageUrl(s.aboutUrl);
 
   const logoHtml = logoUrl
-    ? `<img src="${escHtml(logoUrl)}" alt=""${escHtml(name)}" style="max-height:52px;max-width:160px;object-fit:contain;">`
+    ? `<img src="${escHtml(logoUrl)}" alt="${escHtml(name)}" style="max-height:52px;max-width:160px;object-fit:contain;">`
     : `<div style="font-size:20px;font-weight:900;letter-spacing:-0.5px;color:${f.navText}">${escHtml(name)}</div>`;
 
   const heroImg = heroUrl
@@ -2235,11 +2298,17 @@ async function buildWebsite(s, uuid, baseUrl) {
     ? `<img src="${escHtml(aboutUrl)}" alt="About ${escHtml(name)}" style="width:100%;height:100%;object-fit:cover;border-radius:${f.imgRadius};">`
     : `<span style="font-size:72px;">${f.aboutEmoji}</span>`;
 
+  // Where this site really lives, so search engines and social cards use one address
+  const canonical = siteUrlFor(siteRow ? { ...siteRow, uuid } : { uuid });
+  // A preview link for a site that has its own address shouldn't compete with it in search
+  const noindex = Boolean(opts.viaPreview && canonical !== `${BASE_URL}/preview/${uuid}`);
+  const shareImage = [heroUrl, aboutUrl, logoUrl].find(u => /^https?:\/\//.test(u || '')) || '';
+
   const badge = showBadge ? `
     <div style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(15,15,30,0.92);backdrop-filter:blur(8px);
       padding:10px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <span style="font-size:13px;color:rgba(255,255,255,0.7);">Built with <strong style="color:#6C47FF;">SiteSnap</strong></span>
-      <a href="${baseUrl}" target="_blank" style="font-size:12px;font-weight:700;color:#6C47FF;text-decoration:none;
+      <a href="${escHtml(BASE_URL)}/?ref=badge" target="_blank" rel="noopener" style="font-size:12px;font-weight:700;color:#6C47FF;text-decoration:none;
         padding:6px 16px;background:rgba(108,71,255,0.15);border-radius:20px;border:1px solid rgba(108,71,255,0.3);">
         Create your own →</a>
     </div>` : '';
@@ -2249,7 +2318,16 @@ async function buildWebsite(s, uuid, baseUrl) {
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="${escHtml(tagline)}">
-<title>${escHtml(name)}</title>
+<title>${escHtml(name)}${s.location ? ' · ' + escHtml(s.location) : ''}</title>
+<link rel="canonical" href="${escHtml(canonical)}">
+${noindex ? '<meta name="robots" content="noindex">' : ''}
+<meta property="og:type" content="website">
+<meta property="og:title" content="${escHtml(name)}">
+<meta property="og:description" content="${escHtml(tagline)}">
+<meta property="og:url" content="${escHtml(canonical)}">
+${shareImage ? `<meta property="og:image" content="${escHtml(shareImage)}">` : ''}
+<meta name="twitter:card" content="${shareImage ? 'summary_large_image' : 'summary'}">
+${logoUrl && /^https?:/.test(logoUrl) ? `<link rel="icon" href="${escHtml(logoUrl)}">` : `<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='${f.btnBg}'/><text x='50' y='68' font-size='56' text-anchor='middle' fill='white' font-family='Arial,sans-serif' font-weight='bold'>${escHtml(name.trim().charAt(0).toUpperCase() || 'S')}</text></svg>`)}">`}
 <link href="https://fonts.googleapis.com/css2?family=${f.fontUrl}&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}html{scroll-behavior:smooth;}
@@ -2357,11 +2435,34 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
 .footer-name{font-size:18px;font-weight:800;color:${f.footerText};}
 .footer-copy{font-size:13px;color:${f.footerText};opacity:0.5;}
 .footer-links{display:flex;gap:24px;font-size:13px;color:${f.footerText};opacity:0.6;}
-@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}.faq-item summary{padding:16px 18px;}.faq-a{padding:0 18px 16px;}nav{padding:12px 16px;flex-wrap:nowrap;}.nav-links{display:none;}.nav-cta{padding:8px 16px;font-size:13px;white-space:nowrap;}footer{flex-direction:column;align-items:flex-start;gap:10px;}}
+.nav-toggle{position:absolute;opacity:0;pointer-events:none;}
+.nav-burger{display:none;cursor:pointer;font-size:24px;line-height:1;color:${f.navText};padding:6px 8px;border-radius:8px;user-select:none;}
+.nav-toggle:focus-visible + .nav-burger{outline:2px solid ${f.accent};outline-offset:2px;}
+/* ── CONTACT ─────────────────────────────────────── */
+.contact-wrap{max-width:960px;margin:48px auto 0;display:grid;gap:24px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));text-align:left;}
+.contact-card{background:${f.cardBg};border:${f.cardBorder};border-radius:${f.cardRadius};padding:28px;color:${f.text};}
+.contact-card h3{font-family:${f.headFont};font-size:18px;font-weight:700;color:${f.headingColor};margin-bottom:14px;}
+.contact-line{display:flex;gap:10px;align-items:flex-start;font-size:15px;color:${f.subTextColor};margin-bottom:12px;line-height:1.5;word-break:break-word;}
+.contact-line a{color:${f.headingColor};font-weight:600;text-decoration:underline;text-underline-offset:3px;}
+.contact-hours{white-space:pre-line;}
+.contact-social{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+.contact-social a{font-size:13px;font-weight:700;padding:8px 14px;border-radius:${f.btnRadius};border:${f.cardBorder};color:${f.headingColor};}
+.contact-form label{display:block;font-size:13px;font-weight:600;color:${f.headingColor};margin:0 0 6px;}
+.contact-form input,.contact-form textarea{width:100%;font:inherit;font-size:15px;padding:12px 14px;border-radius:10px;border:1px solid rgba(127,127,127,.35);background:#fff;color:#111;margin-bottom:14px;}
+.contact-form textarea{min-height:120px;resize:vertical;}
+.contact-form .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;}
+.contact-form button{width:100%;justify-content:center;}
+.form-msg{display:none;margin:0 auto 24px;max-width:960px;padding:14px 18px;border-radius:10px;font-weight:600;font-size:15px;text-align:center;}
+.form-msg:target{display:block;}
+#contact-sent{background:#DCFCE7;color:#14532D;}
+#contact-error{background:#FEE2E2;color:#7F1D1D;}
+.contact-plain{background:${f.aboutBg};text-align:center;}
+@media(max-width:700px){.hero,.about-grid{grid-template-columns:1fr;}.hero-img-wrap{display:none;}.features-grid{grid-template-columns:1fr;}nav,section,footer{padding-left:24px;padding-right:24px;}.trust-bar{gap:20px;}.faq-item summary{padding:16px 18px;}.faq-a{padding:0 18px 16px;}nav{padding:12px 16px;flex-wrap:nowrap;gap:10px;}.nav-burger{display:block;order:3;}.nav-links{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:0;background:${f.navBg};border-bottom:${f.navBorder || '1px solid rgba(127,127,127,.2)'};opacity:1;padding:8px 0;box-shadow:0 12px 24px rgba(0,0,0,.12);}.nav-links a{padding:14px 24px;font-size:16px;}.nav-toggle:checked ~ .nav-links{display:flex;}.nav-cta{padding:8px 16px;font-size:13px;white-space:nowrap;margin-left:auto;}footer{flex-direction:column;align-items:flex-start;gap:10px;}}
 @media(max-width:420px){nav{padding:10px 14px;}.nav-cta{padding:7px 12px;font-size:12px;}}
 </style></head><body>
 <nav>
   ${logoHtml}
+  ${navLinksHtml ? `<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Open menu"><label for="nav-toggle" class="nav-burger" aria-hidden="true">&#9776;</label>` : ''}
   <div class="nav-links">${navLinksHtml}</div>
   ${renderCta(safeCta('nav',cta,'contact'), cta, 'nav-cta')}
 </nav>
@@ -2374,11 +2475,8 @@ footer{background:${f.footerBg};border-top:${f.footerBorder};padding:40px 48px;d
   </div>
   <div class="hero-img-wrap">${heroImg}</div>
 </div>
-${s.showTrustBar !== false ? `<div class="trust-bar">
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust1 || 'Trusted by clients worldwide')}</div>
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust2 || '5-star rated')}</div>
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust3 || '100% satisfaction')}</div>
-  <div class="trust-item"><div class="trust-dot"></div>${escHtml(s.trust4 || s.location || 'Available online')}</div>
+${showTrust ? `<div class="trust-bar">
+  ${trustItems.map(t => `<div class="trust-item"><div class="trust-dot"></div>${escHtml(t)}</div>`).join('')}
 </div>` : ''}
 ${show.about ? `<section class="about" id="about">
   <div class="about-grid">
@@ -2439,14 +2537,35 @@ ${show.faq ? `<section class="faq-section" id="faq">
     </details>`).join('')}
   </div>
 </section>` : ''}
-${show.cta ? `<section class="cta-section" id="contact">
-  <h2>${escHtml(s.ctaHeadline || 'Ready to get started?')}</h2>
-  <p>${escHtml(s.ctaSubtext || ('Join the people already working with ' + name + '. Your journey begins with one simple step.'))}</p>
-  ${renderCta(safeCta('final',cta+' →','contact'), cta+' →', 'btn-p', `background:${f.ctaSectionBtn};color:${f.ctaSectionBtnText};font-size:17px;padding:18px 44px;`)}
+${show.contact ? `<section class="${show.cta ? 'cta-section' : 'contact-plain'}" id="contact">
+  <div class="form-msg" id="contact-sent" role="status">Thanks! Your message was sent. We'll get back to you soon.</div>
+  <div class="form-msg" id="contact-error" role="alert">Sorry, your message couldn't be sent. Please try again, or use the details below.</div>
+  ${show.cta ? `<h2>${escHtml(s.ctaHeadline || 'Ready to get started?')}</h2>
+  <p>${escHtml(s.ctaSubtext || ('Get in touch with ' + name + ' today.'))}</p>
+  ${renderCta(safeCta('final',cta+' →','contact'), cta+' →', 'btn-p', `background:${f.ctaSectionBtn};color:${f.ctaSectionBtnText};font-size:17px;padding:18px 44px;`)}`
+  : `<div class="eyebrow">Contact</div><div class="section-title">Get in touch</div>`}
+  ${(contact.hasDetails || showForm) ? `<div class="contact-wrap">
+    ${contact.hasDetails ? `<div class="contact-card">
+      <h3>Contact details</h3>
+      ${contact.phone ? `<div class="contact-line"><span aria-hidden="true">📞</span><a href="tel:${escHtml(contact.phoneHref)}">${escHtml(contact.phone)}</a></div>` : ''}
+      ${contact.email ? `<div class="contact-line"><span aria-hidden="true">✉️</span><a href="mailto:${escHtml(contact.email)}">${escHtml(contact.email)}</a></div>` : ''}
+      ${contact.address ? `<div class="contact-line"><span aria-hidden="true">📍</span><a href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(contact.address)}" target="_blank" rel="noopener">${escHtml(contact.address)}</a></div>` : ''}
+      ${contact.hours ? `<div class="contact-line"><span aria-hidden="true">🕒</span><span class="contact-hours">${escHtml(contact.hours)}</span></div>` : ''}
+      ${contact.socials.length ? `<div class="contact-social">${contact.socials.map(x => `<a href="${escHtml(x.url)}" target="_blank" rel="noopener">${escHtml(x.label)}</a>`).join('')}</div>` : ''}
+    </div>` : ''}
+    ${showForm ? `<form class="contact-card contact-form" method="post" action="${escHtml(BASE_URL)}/api/contact/${escHtml(uuid)}">
+      <h3>Send a message</h3>
+      <label for="cf-name">Your name</label><input id="cf-name" name="name" required maxlength="100" autocomplete="name">
+      <label for="cf-email">Your email</label><input id="cf-email" name="email" type="email" required maxlength="254" autocomplete="email">
+      <label for="cf-message">Message</label><textarea id="cf-message" name="message" required maxlength="3000"></textarea>
+      <div class="hp" aria-hidden="true"><label for="cf-website">Leave this empty</label><input id="cf-website" name="website" tabindex="-1" autocomplete="off"></div>
+      <button type="submit" class="btn-p">Send message</button>
+    </form>` : ''}
+  </div>` : ''}
 </section>` : ''}
 <footer>
   <div class="footer-name">${escHtml(name)}</div>
-  <div class="footer-links">${show.cta ? '<a href="#contact">Contact</a>' : ''}</div>
+  <div class="footer-links">${contact.phone ? `<a href="tel:${escHtml(contact.phoneHref)}">${escHtml(contact.phone)}</a>` : ''}${contact.email ? `<a href="mailto:${escHtml(contact.email)}">${escHtml(contact.email)}</a>` : ''}${show.contact ? '<a href="#contact">Contact</a>' : ''}</div>
   <div class="footer-copy">© ${new Date().getFullYear()} ${escHtml(name)}. All rights reserved.</div>
 </footer>
 ${badge}
@@ -2454,6 +2573,56 @@ ${badge}
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────
+// The address a site is really published at: its own domain, then its
+// subdomain, then the preview link.
+function siteUrlFor(row) {
+  if (row && row.custom_domain) return `https://${row.custom_domain}`;
+  if (row && row.subdomain && SUBDOMAINS_ENABLED) return `https://${row.subdomain}.${APP_DOMAIN}`;
+  return `${BASE_URL}/preview/${row && row.uuid}`;
+}
+
+// Cleans the owner's contact details. Links are rebuilt from scratch, so a
+// value can never become a javascript: link or break out of an attribute.
+function normalizeContact(raw) {
+  const c = (raw && typeof raw === 'object') ? raw : {};
+  const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
+  const phone = str(c.phone, 40);
+  const phoneHref = phone.replace(/[^\d+]/g, '');
+  let email = str(c.email, 254).replace(/^mailto:/i, '');
+  if (!/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email)) email = '';
+  const socials = [];
+  for (const [key, label] of [['facebook', 'Facebook'], ['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['linkedin', 'LinkedIn'], ['website', 'Website']]) {
+    let v = str(c[key], 300);
+    if (!v) continue;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(v) && !/^https?:\/\//i.test(v)) continue;
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v.replace(/^\/+/, '');
+    if (!/^https?:\/\/[^\s/$.?#"'<>][^\s"'<>]*$/i.test(v)) continue;
+    socials.push({ label, url: v });
+  }
+  const out = {
+    phone: phoneHref ? phone : '',
+    phoneHref,
+    email,
+    address: str(c.address, 200),
+    hours: str(c.hours, 300),
+    socials,
+    form: c.form === true,
+  };
+  out.hasDetails = Boolean(out.phone || out.email || out.address || out.hours || socials.length);
+  return out;
+}
+
+// Counts a page view for the owner's dashboard. Skips bots, previews the
+// owner opens from the app, and anything that isn't a real page load.
+const BOT_UA = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|curl|wget|python|headless|lighthouse/i;
+function countView(uuid, req) {
+  if (req.method !== 'GET') return;
+  if (BOT_UA.test(req.get('user-agent') || '')) return;
+  if ((req.get('purpose') || req.get('sec-purpose') || '').includes('prefetch')) return;
+  const ref = req.get('referer') || '';
+  if (ref && hostOf(ref) && OWN_HOSTS.has(hostOf(ref)) && !/\/preview\//.test(ref)) return; // opened from the SiteSnap app
+  dbRun('UPDATE sites SET views = COALESCE(views, 0) + 1 WHERE uuid = ?', uuid).catch(() => {});
+}
 // Customer sites are plain HTML and CSS with no scripts at all, so the policy
 // can forbid script outright. Even if some field were ever left unescaped,
 // injected code still could not run.
@@ -2464,7 +2633,7 @@ const SITE_CSP = [
   "font-src https://fonts.gstatic.com data:",
   "img-src * data: blob:",
   "base-uri 'none'",
-  "form-action 'none'",
+  `form-action ${new URL(BASE_URL).origin}`,
   "object-src 'none'",
 ].join('; ');
 
@@ -2619,6 +2788,16 @@ function heroHeadline(name, industry) {
   const map = {'Photography':`Capturing your story,<br><em>beautifully.</em>`,'Beauty & Wellness':`Feel your best,<br><em>inside &amp; out.</em>`,'Food & Beverage':`Made with love,<br><em>served with pride.</em>`,'Fashion & Apparel':`Style that speaks<br><em>for itself.</em>`,'Health & Fitness':`Your strongest self<br><em>starts here.</em>`,'Home & Interior':`Spaces you'll<br><em>love to live in.</em>`,'Art & Creative':`Art that moves<br><em>the world.</em>`,'Coaching & Consulting':`Clarity, strategy,<br><em>results.</em>`,'Real Estate':`Find the home<br><em>you deserve.</em>`,'Technology':`Built for the<br><em>future, today.</em>`,'Retail / E-commerce':`Shop smarter,<br><em>live better.</em>`,'Non-profit':`Making a difference,<br><em>together.</em>`};
   return map[industry] || `${escHtml(name)}:<br><em>Where quality meets purpose.</em>`;
 }
+// Each theme's own palette, used when the owner hasn't picked colours
+const THEME_DEFAULT_COLORS = {
+  'light-airy': { primary: '#8B5E3C', accent: '#C4966A' },
+  'bold-modern': { primary: '#6C47FF', accent: '#00C2FF' },
+  'earthy': { primary: '#5A7A3A', accent: '#C4A882' },
+  'luxe': { primary: '#C9A84C', accent: '#C9A84C' },
+  'playful': { primary: '#FF6B6B', accent: '#FFB347' },
+  'professional': { primary: '#1E3A5F', accent: '#2563EB' },
+};
+
 function getTheme(s) {
   // colorButton is a distinct choice from colorPrimary — set via its own swatch
   // in Step 2 ("Button color"). It falls back to Primary only when the person
@@ -2629,7 +2808,9 @@ function getTheme(s) {
   // Colours are written straight into the page's <style> block, so only a
   // plain hex value is ever allowed through — anything else could close the
   // style tag and inject script.
-  const p = safeColor(s.colorPrimary, '#6C47FF'), a = safeColor(s.colorAccent, '#FF6B6B'), btn = safeColor(s.colorButton, p), font = s.fontStyle||'modern', style = s.designStyle||'light-airy';
+  const style = s.designStyle||'light-airy';
+  const td = THEME_DEFAULT_COLORS[style] || THEME_DEFAULT_COLORS['light-airy'];
+  const p = safeColor(s.colorPrimary, td.primary), a = safeColor(s.colorAccent, td.accent), btn = safeColor(s.colorButton, p), font = s.fontStyle||'modern';
   const fm = {modern:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;700;800",bodyFont:"'Inter',sans-serif",heroWeight:800,heroTracking:'-1px'},elegant:{headFont:"'Playfair Display',serif",fontUrl:"Playfair+Display:wght@400;700",bodyFont:"'Inter',sans-serif",heroWeight:700,heroTracking:'-0.5px'},playful:{headFont:"'Inter',sans-serif",fontUrl:"Inter:wght@400;800;900",bodyFont:"'Inter',sans-serif",heroWeight:900,heroTracking:'-2px'}};
   const f = fm[font]||fm.modern;
   const base = {...f,primary:p,accent:a,btnBg:btn};
@@ -2668,6 +2849,8 @@ process.on('uncaughtException', (err) => {
 // buildWebsite and the background helpers are exported for the test suite —
 // they're the logic behind what actually ships to a customer's visitors.
 module.exports = {
+  normalizeContact,
+  siteUrlFor,
   app, initDb, buttonHref, buildSignupNotification, safeColor, safeImageUrl, isReservedHost,
   buildWebsite, bgConfig, bgIsDark, bgTextVars, bgStyle, hexToRgb, rgba,
 };
