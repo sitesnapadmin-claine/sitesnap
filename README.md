@@ -106,6 +106,9 @@ Until both are set, these features stay hidden instead of half-working.
 
 ## Monitoring
 
+- GitHub Actions runs the tests on every pull request and push to `main` (`.github/workflows/test.yml`).
+- `.github/workflows/uptime.yml` checks the live site every 10 minutes. If it fails, GitHub emails the repository owner.
+
 - `SENTRY_DSN` sends server errors to Sentry.
 - Point an uptime checker (UptimeRobot or Better Stack) at `https://www.site-snap.app/api/config`.
 - Turn on backups for the Railway Postgres database.
