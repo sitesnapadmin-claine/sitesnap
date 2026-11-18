@@ -1,0 +1,24 @@
+name: Uptime
+
+# Checks the live site every 10 minutes. A failed run makes GitHub email the
+# repository owner, so this works as a free uptime alert. GitHub may run it a
+# few minutes late, and pauses scheduled runs after 60 days with no commits.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: App and database respond
+        run: |
+          check() {
+            curl -fsS --max-time 20 --retry 2 --retry-delay 15 --retry-all-errors "$1" -o /tmp/body \
+              && grep -q "$2" /tmp/body
+          }
+          check https://www.site-snap.app/api/config passwordResetEnabled
+          check https://www.site-snap.app/ SiteSnap
+          echo "Site is up"
