@@ -1840,7 +1840,7 @@
       <span class="logo-name">Site<span>Snap</span></span>
     </div>
     <div class="mkt-footer-links">
-      <a href="/terms" target="_blank" rel="noopener">Terms</a> &nbsp;·&nbsp; <a href="/privacy" target="_blank" rel="noopener">Privacy</a>
+      <a href="/terms" target="_blank" rel="noopener">Terms</a> &nbsp;·&nbsp; <a href="/privacy" target="_blank" rel="noopener">Privacy</a> &nbsp;·&nbsp; Help: <a href="mailto:support@site-snap.app" class="support-link">support@site-snap.app</a>
     </div>
     <div class="mkt-footer-copy">© <span id="mkt-year"></span> SiteSnap. All rights reserved.</div>
   </footer>
@@ -2096,6 +2096,7 @@ fetch('/api/config')
   .then(cfg => {
     subdomainsEnabled = Boolean(cfg.subdomainsEnabled);
     contactFormEnabled = Boolean(cfg.contactFormEnabled);
+    if (cfg.supportEmail) document.querySelectorAll('.support-link').forEach(a => { a.href = 'mailto:' + cfg.supportEmail; a.textContent = cfg.supportEmail; });
     // Privacy-friendly, cookie-free visit counting, switched on by the server's PLAUSIBLE_DOMAIN setting
     if (cfg.plausibleDomain && !document.getElementById('plausible-js')) {
       const sc = document.createElement('script');
