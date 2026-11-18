@@ -1,5 +1,7 @@
 # SiteSnap
 
+> Taking over development or planning a rewrite? Start with [HANDOVER.md](HANDOVER.md).
+
 **Build a website for your small business in minutes, with no coding.**
 
 Live at [www.site-snap.app](https://www.site-snap.app). Hosted on Railway, which deploys automatically from the `main` branch.
