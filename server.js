@@ -573,6 +573,7 @@ async function initDb() {
         external_id TEXT UNIQUE NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )`,
+      'CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT)',
     ]) { try { await pgPool.query(sql); } catch (e) { console.warn('migration skipped:', e.message); } }
     console.log('✓ Using Postgres — site data survives redeploys');
     return;
@@ -628,6 +629,7 @@ async function initDb() {
       external_id TEXT UNIQUE NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
+    'CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT)',
   ].forEach(sql => { try { sqliteDb.exec(sql); } catch (_) {} });
   console.warn('⚠️  Using SQLite — on an ephemeral host, saved sites are LOST on every redeploy.');
   console.warn('   Attach a Postgres service so DATABASE_URL is set.');
@@ -1869,29 +1871,220 @@ document.getElementById('pw').addEventListener('keydown', e => { if(e.key==='Ent
 // A single shared password (set via ADMIN_PASSWORD) gates a read-only overview
 // of signups, plans, and saved sites — so the owner can check on the business
 // without touching the database or an API client.
+//
+// The password starts as ADMIN_PASSWORD from the environment. Once the owner
+// changes or resets it here, a bcrypt hash is kept in admin_settings and that
+// wins over the environment variable. Changing it also bumps a session
+// version, which signs out every other admin session.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_MIN_PASSWORD = 12;
+const ADMIN_RESET_TTL_MS = 30 * 60 * 1000;
+// Reset links only ever go to the owner's own address, never one typed in
+const ADMIN_RESET_EMAIL = ADMIN_EMAIL || SIGNUP_NOTIFY_EMAIL;
 const adminLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+const adminForgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many reset requests. Please check your email or try again later.' },
+});
+const adminResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
+});
 
-function requireAdmin(req, res, next) {
+async function getAdminSetting(key) {
+  const row = await dbGet('SELECT value FROM admin_settings WHERE key = ?', key);
+  return row ? row.value : null;
+}
+async function setAdminSetting(key, value) {
+  if (value === null) return dbRun('DELETE FROM admin_settings WHERE key = ?', key);
+  await dbRun(USE_PG
+    ? 'INSERT INTO admin_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value'
+    : 'INSERT OR REPLACE INTO admin_settings (key, value) VALUES (?, ?)', key, String(value));
+}
+async function adminSessionVersion() {
+  return Number(await getAdminSetting('session_version') || 0);
+}
+
+async function adminPasswordConfigured() {
+  return Boolean(ADMIN_PASSWORD || await getAdminSetting('password_hash'));
+}
+
+async function checkAdminPassword(password) {
+  password = String(password || '');
+  const stored = await getAdminSetting('password_hash');
+  if (stored) return bcrypt.compare(password, stored);
+  if (!ADMIN_PASSWORD) return false;
+  const given = crypto.createHash('sha256').update(password).digest();
+  const wanted = crypto.createHash('sha256').update(ADMIN_PASSWORD).digest();
+  return crypto.timingSafeEqual(given, wanted);
+}
+
+function adminPasswordProblem(password) {
+  if (typeof password !== 'string' || password.length < ADMIN_MIN_PASSWORD) return `The admin password must be at least ${ADMIN_MIN_PASSWORD} characters`;
+  if (password.length > 200) return 'That password is too long';
+  return null;
+}
+
+// Saves the new password, cancels any reset link and signs out other sessions.
+// Returns a fresh session token for whoever made the change.
+async function setAdminPassword(password) {
+  await setAdminSetting('password_hash', await bcrypt.hash(password, 10));
+  await setAdminSetting('reset_token_hash', null);
+  await setAdminSetting('reset_expires', null);
+  const av = (await adminSessionVersion()) + 1;
+  await setAdminSetting('session_version', av);
+  return jwt.sign({ admin: true, av }, JWT_SECRET, { expiresIn: '12h' });
+}
+
+// "a•••@gmail.com", so the owner knows which inbox to check without the
+// login screen showing the full address to anyone who opens /admin
+function maskEmail(email) {
+  const [name, domain] = String(email).split('@');
+  if (!domain) return 'the admin email address';
+  return `${name.slice(0, 1)}•••@${domain}`;
+}
+
+async function requireAdmin(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Admin login required' });
   try {
     const claims = jwt.verify(token, JWT_SECRET);
     if (!claims.admin) throw new Error('not an admin token');
-    next();
+    if (Number(claims.av || 0) !== await adminSessionVersion()) throw new Error('password changed');
   } catch {
     return res.status(401).json({ error: 'Invalid or expired admin session' });
   }
+  next();
 }
 
-app.post('/api/admin/login', adminLoginLimiter, (req, res) => {
-  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin dashboard is not configured yet (ADMIN_PASSWORD not set).' });
-  const { password } = req.body || {};
-  const given = crypto.createHash('sha256').update(String(password || '')).digest();
-  const wanted = crypto.createHash('sha256').update(ADMIN_PASSWORD).digest();
-  if (!crypto.timingSafeEqual(given, wanted)) return res.status(401).json({ error: 'Incorrect password' });
-  const token = jwt.sign({ admin: true }, JWT_SECRET, { expiresIn: '12h' });
-  res.json({ token });
+app.post('/api/admin/login', adminLoginLimiter, async (req, res) => {
+  try {
+    if (!await adminPasswordConfigured()) {
+      return res.status(503).json({ error: 'No admin password is set yet. Use "Forgot password?" to set one, or set ADMIN_PASSWORD in Railway.' });
+    }
+    if (!await checkAdminPassword((req.body || {}).password)) return res.status(401).json({ error: 'Incorrect password' });
+    const token = jwt.sign({ admin: true, av: await adminSessionVersion() }, JWT_SECRET, { expiresIn: '12h' });
+    res.json({ token });
+  } catch (e) {
+    console.error('admin login error:', e.message);
+    res.status(500).json({ error: 'Could not log in' });
+  }
+});
+
+// Emails a one-time link to the owner's address. Nothing typed on the login
+// screen decides where it goes, so this can't be used to take over the admin.
+app.post('/api/admin/forgot-password', adminForgotLimiter, async (req, res) => {
+  if (!EMAIL_READY) {
+    return res.status(503).json({ error: 'Email isn\'t set up, so a reset link can\'t be sent. Change ADMIN_PASSWORD in Railway instead.' });
+  }
+  try {
+    const token = crypto.randomBytes(32).toString('hex');
+    await setAdminSetting('reset_token_hash', hashToken(token));
+    await setAdminSetting('reset_expires', Date.now() + ADMIN_RESET_TTL_MS);
+    const link = `${BASE_URL}/admin/reset-password?token=${token}`;
+    await sendEmail({
+      to: ADMIN_RESET_EMAIL,
+      subject: 'Reset your SiteSnap admin password',
+      html: `<p>Someone asked to reset the password for the SiteSnap admin dashboard.</p>
+             <p><a href="${escHtml(link)}">Choose a new admin password</a></p>
+             <p>This link works once and expires in 30 minutes. If it wasn't you, ignore this email: your password stays the same.</p>`,
+    });
+    res.json({ ok: true, message: `We've emailed a reset link to ${maskEmail(ADMIN_RESET_EMAIL)}. It expires in 30 minutes.` });
+  } catch (e) {
+    console.error('admin forgot-password error:', e.message);
+    res.status(500).json({ error: 'Could not send the reset email. Please try again shortly.' });
+  }
+});
+
+app.post('/api/admin/reset-password', adminResetLimiter, async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token) return res.status(400).json({ error: 'Reset link is missing its token' });
+  const problem = adminPasswordProblem(password);
+  if (problem) return res.status(400).json({ error: problem });
+  try {
+    const stored = await getAdminSetting('reset_token_hash');
+    const expires = Number(await getAdminSetting('reset_expires') || 0);
+    const given = Buffer.from(hashToken(token));
+    if (!stored || stored.length !== given.length || !crypto.timingSafeEqual(given, Buffer.from(stored))) {
+      return res.status(400).json({ error: 'This reset link is invalid or has already been used.' });
+    }
+    if (expires < Date.now()) return res.status(400).json({ error: 'This reset link has expired. Please request a new one.' });
+    const sessionToken = await setAdminPassword(password);
+    res.json({ ok: true, token: sessionToken });
+  } catch (e) {
+    console.error('admin reset-password error:', e.message);
+    res.status(500).json({ error: 'Could not reset the password' });
+  }
+});
+
+app.post('/api/admin/change-password', requireAdmin, adminLoginLimiter, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  const problem = adminPasswordProblem(newPassword);
+  if (problem) return res.status(400).json({ error: problem });
+  try {
+    if (!await checkAdminPassword(currentPassword)) return res.status(401).json({ error: 'Your current password is incorrect' });
+    res.json({ ok: true, token: await setAdminPassword(newPassword) });
+  } catch (e) {
+    console.error('admin change-password error:', e.message);
+    res.status(500).json({ error: 'Could not change the password' });
+  }
+});
+
+app.get('/admin/reset-password', (req, res) => {
+  const token = String(req.query.token || '');
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Reset admin password — SiteSnap</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;background:#F7F7FB;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.card{background:#fff;border-radius:20px;padding:40px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(108,71,255,.12)}
+h1{font-size:22px;font-weight:800;color:#1A1A2E;margin-bottom:8px}
+p.sub{font-size:14px;color:#6B7280;line-height:1.6;margin-bottom:24px}
+label{display:block;font-size:13px;font-weight:600;color:#374151;margin:0 0 6px}
+input{width:100%;padding:13px 14px;border:1.5px solid #E5E7EB;border-radius:10px;font-size:15px;font-family:inherit;margin-bottom:14px}
+input:focus{outline:none;border-color:#6C47FF}
+button{width:100%;margin-top:4px;padding:14px;background:#6C47FF;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
+button:disabled{opacity:.6;cursor:default}
+.msg{margin-top:14px;font-size:13px;line-height:1.5}
+.ok{color:#059669}.bad{color:#DC2626}
+a{color:#6C47FF;font-weight:600;text-decoration:none}</style></head><body>
+<div class="card">
+  <h1>Choose a new admin password</h1>
+  <p class="sub">At least ${ADMIN_MIN_PASSWORD} characters. Any other admin sessions will be signed out.</p>
+  <label for="pw">New password</label>
+  <input type="password" id="pw" autocomplete="new-password">
+  <label for="pw2">Type it again</label>
+  <input type="password" id="pw2" autocomplete="new-password">
+  <button id="go" type="button">Save new password</button>
+  <div class="msg" id="msg" role="status"></div>
+</div>
+<script>
+const TOKEN = ${JSON.stringify(token).replace(/</g, '\\u003c')};
+async function submitReset(){
+  const pw = document.getElementById('pw').value;
+  const pw2 = document.getElementById('pw2').value;
+  const msg = document.getElementById('msg');
+  const btn = document.getElementById('go');
+  if (pw.length < ${ADMIN_MIN_PASSWORD}){ msg.className='msg bad'; msg.textContent='Please use at least ${ADMIN_MIN_PASSWORD} characters.'; return; }
+  if (pw !== pw2){ msg.className='msg bad'; msg.textContent="The two passwords don't match."; return; }
+  btn.disabled = true; msg.className='msg'; msg.textContent='Saving…';
+  try{
+    const r = await fetch('/api/admin/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token: TOKEN, password: pw })});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || 'Something went wrong');
+    try { sessionStorage.setItem('sitesnap_admin_token', d.token); } catch (_) {}
+    msg.className='msg ok';
+    msg.innerHTML='✓ Password updated. <a href="/admin">Open the dashboard →</a>';
+    btn.style.display='none';
+  }catch(e){
+    msg.className='msg bad'; msg.textContent = e.message; btn.disabled=false;
+  }
+}
+document.getElementById('go').addEventListener('click', submitReset);
+document.getElementById('pw2').addEventListener('keydown', e => { if(e.key==='Enter') submitReset(); });
+</script></body></html>`);
 });
 
 app.get('/api/admin/overview', requireAdmin, async (req, res) => {

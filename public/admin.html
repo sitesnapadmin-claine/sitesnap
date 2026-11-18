@@ -38,6 +38,25 @@
   .login-card button:hover { background: var(--brand-dark); }
   .login-card button:disabled { opacity: 0.6; cursor: default; }
   .login-error { color: #DC2626; font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .login-info { color: #059669; font-size: 13px; margin-top: 10px; line-height: 1.5; }
+  .link-btn { background: none !important; border: none; color: var(--brand) !important; font-weight: 600; font-size: 13px; cursor: pointer; padding: 6px !important; margin-top: 8px; width: auto !important; font-family: inherit; }
+  .link-btn:hover { text-decoration: underline; }
+
+  /* ── Change password dialog ───────────────────────────────── */
+  dialog#pw-dialog { border: none; border-radius: 16px; padding: 28px; width: min(400px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+  dialog#pw-dialog::backdrop { background: rgba(15,15,30,0.45); }
+  dialog#pw-dialog h2 { font-size: 18px; margin: 0 0 6px; }
+  dialog#pw-dialog p { color: var(--muted); font-size: 13px; margin: 0 0 18px; line-height: 1.5; }
+  dialog#pw-dialog label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  dialog#pw-dialog input { width: 100%; padding: 11px 13px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 15px; margin-bottom: 14px; font-family: inherit; outline: none; box-sizing: border-box; }
+  dialog#pw-dialog input:focus { border-color: var(--brand); }
+  .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+  .dialog-actions button { padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .dialog-actions .secondary { background: none; border: 1px solid var(--border); color: var(--text); }
+  .dialog-actions .primary { background: var(--brand); border: none; color: white; }
+  .dialog-actions .primary:disabled { opacity: 0.6; cursor: default; }
+  .dialog-msg { font-size: 13px; min-height: 18px; margin-bottom: 8px; }
+  .dialog-msg.bad { color: #DC2626; } .dialog-msg.ok { color: #059669; }
 
   /* ── Dashboard shell ──────────────────────────────────────── */
   #dashboard { display: none; }
@@ -98,9 +117,11 @@
     <span class="logo-name">Site<span>Snap</span></span>
     <h1>Admin Dashboard</h1>
     <p>Enter your admin password to view the dashboard.</p>
-    <input type="password" id="pw-input" placeholder="Admin password" autocomplete="off">
+    <input type="password" id="pw-input" placeholder="Admin password" autocomplete="current-password" aria-label="Admin password">
     <button id="login-btn">Log in</button>
-    <div class="login-error" id="login-error"></div>
+    <div class="login-error" id="login-error" role="alert"></div>
+    <div class="login-info" id="login-info" role="status"></div>
+    <button type="button" class="link-btn" id="forgot-btn">Forgot password?</button>
   </div>
 </div>
 
@@ -113,6 +134,7 @@
     </div>
     <div class="top-actions">
       <button id="refresh-btn">↻ Refresh</button>
+      <button id="change-pw-btn">Change password</button>
       <button id="logout-btn">Log out</button>
     </div>
   </header>
@@ -145,6 +167,22 @@
     </div>
   </main>
 </div>
+
+<dialog id="pw-dialog" aria-labelledby="pw-dialog-title">
+  <h2 id="pw-dialog-title">Change admin password</h2>
+  <p>At least 12 characters. Any other admin sessions will be signed out.</p>
+  <label for="cur-pw">Current password</label>
+  <input type="password" id="cur-pw" autocomplete="current-password">
+  <label for="new-pw">New password</label>
+  <input type="password" id="new-pw" autocomplete="new-password">
+  <label for="new-pw2">Type it again</label>
+  <input type="password" id="new-pw2" autocomplete="new-password">
+  <div class="dialog-msg" id="pw-dialog-msg" role="status"></div>
+  <div class="dialog-actions">
+    <button type="button" class="secondary" id="pw-cancel">Cancel</button>
+    <button type="button" class="primary" id="pw-save">Save password</button>
+  </div>
+</dialog>
 
 <script>
 const API = '';
@@ -182,6 +220,65 @@ function showLogin(errorMsg) {
   document.getElementById('dashboard').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-error').textContent = errorMsg || '';
+  document.getElementById('login-info').textContent = '';
+}
+
+async function forgotPassword() {
+  const btn = document.getElementById('forgot-btn');
+  const errEl = document.getElementById('login-error');
+  const infoEl = document.getElementById('login-info');
+  errEl.textContent = ''; infoEl.textContent = '';
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const res = await fetch(API + '/api/admin/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Could not send the reset email');
+    infoEl.textContent = body.message;
+  } catch (e) {
+    errEl.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Forgot password?';
+  }
+}
+
+function openPwDialog() {
+  ['cur-pw', 'new-pw', 'new-pw2'].forEach(id => { document.getElementById(id).value = ''; });
+  const msg = document.getElementById('pw-dialog-msg');
+  msg.textContent = ''; msg.className = 'dialog-msg';
+  document.getElementById('pw-save').style.display = '';
+  document.getElementById('pw-cancel').textContent = 'Cancel';
+  document.getElementById('pw-dialog').showModal();
+  document.getElementById('cur-pw').focus();
+}
+
+async function savePassword() {
+  const cur = document.getElementById('cur-pw').value;
+  const pw = document.getElementById('new-pw').value;
+  const pw2 = document.getElementById('new-pw2').value;
+  const msg = document.getElementById('pw-dialog-msg');
+  const btn = document.getElementById('pw-save');
+  msg.className = 'dialog-msg bad';
+  if (pw.length < 12) { msg.textContent = 'Please use at least 12 characters.'; return; }
+  if (pw !== pw2) { msg.textContent = "The two new passwords don't match."; return; }
+  btn.disabled = true; msg.className = 'dialog-msg'; msg.textContent = 'Saving…';
+  try {
+    const res = await fetch(API + '/api/admin/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + adminToken },
+      body: JSON.stringify({ currentPassword: cur, newPassword: pw }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || 'Could not change the password');
+    adminToken = body.token;
+    sessionStorage.setItem('sitesnap_admin_token', adminToken);
+    msg.className = 'dialog-msg ok'; msg.textContent = '✓ Password changed.';
+    btn.style.display = 'none';
+    document.getElementById('pw-cancel').textContent = 'Close';
+  } catch (e) {
+    msg.className = 'dialog-msg bad'; msg.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function showDashboard() {
@@ -301,6 +398,11 @@ async function loadCustomers(search) {
 document.getElementById('login-btn').addEventListener('click', login);
 document.getElementById('pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 document.getElementById('logout-btn').addEventListener('click', () => showLogin());
+document.getElementById('forgot-btn').addEventListener('click', forgotPassword);
+document.getElementById('change-pw-btn').addEventListener('click', openPwDialog);
+document.getElementById('pw-cancel').addEventListener('click', () => document.getElementById('pw-dialog').close());
+document.getElementById('pw-save').addEventListener('click', savePassword);
+document.getElementById('new-pw2').addEventListener('keydown', e => { if (e.key === 'Enter') savePassword(); });
 document.getElementById('refresh-btn').addEventListener('click', () => { loadOverview(); loadCustomers(document.getElementById('search-box').value); });
 document.getElementById('search-box').addEventListener('input', e => {
   clearTimeout(searchDebounce);
