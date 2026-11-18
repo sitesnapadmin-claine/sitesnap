@@ -106,6 +106,28 @@
   .site-links a:hover { text-decoration: underline; }
   .site-links div { margin-bottom: 4px; }
   .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-state.small { padding: 24px 20px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .tag.refunded { background: #FEE2E2; color: #B91C1C; }
+  .tag.partial { background: var(--amber-light); color: var(--amber); }
+  .tag.paid { background: var(--green-light); color: var(--green); }
+  .tag.warn { background: var(--amber-light); color: var(--amber); }
+  .neg { color: #B91C1C; }
+  .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 24px; }
+  .two-col .panel { margin-bottom: 0; }
+  .two-col { margin-bottom: 24px; }
+  .status-list { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  .status-list li { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .status-list li:last-child { border-bottom: none; }
+  .status-list .k { color: var(--muted); }
+  .status-list .v { text-align: right; }
+  .ok-text { color: var(--green); font-weight: 600; }
+  .bad-text { color: #B91C1C; font-weight: 600; }
+  .panel-btn { background: none; border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; font-size: 13px; color: var(--text); cursor: pointer; font-family: inherit; }
+  .panel-btn:hover { border-color: var(--brand); color: var(--brand); }
+  .panel-btn:disabled { opacity: 0.6; cursor: default; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  .table-scroll { overflow-x: auto; }
   .loading { text-align: center; padding: 60px 20px; color: var(--muted); }
 </style>
 </head>
@@ -153,7 +175,23 @@
 
     <div class="panel">
       <div class="panel-head"><h2>Recent payments</h2></div>
-      <div class="panel-body" id="payments-wrap"><div class="loading">Loading…</div></div>
+      <div class="table-scroll" id="payments-wrap"><div class="loading">Loading…</div></div>
+    </div>
+
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-head"><h2>PayPal connection</h2><button class="panel-btn" id="check-refunds-btn">Check PayPal for refunds</button></div>
+        <div class="panel-body" id="paypal-wrap"><div class="loading">Loading…</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Needs attention</h2></div>
+        <div class="panel-body" id="attention-wrap"><div class="loading">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Most visited sites</h2></div>
+      <div class="table-scroll" id="top-sites-wrap"><div class="loading">Loading…</div></div>
     </div>
 
     <div class="panel">
@@ -161,7 +199,7 @@
         <h2>Customers</h2>
         <input type="text" class="search-box" id="search-box" placeholder="Search by email…">
       </div>
-      <div id="customers-wrap">
+      <div id="customers-wrap" class="table-scroll">
         <div class="loading">Loading customers…</div>
       </div>
     </div>
@@ -311,28 +349,111 @@ async function login() {
   }
 }
 
+const money = n => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const KIND_LABEL = { starter: 'Starter purchase', pro: 'Pro monthly payment', refund: 'Refund' };
+
+function timeAgo(iso) {
+  if (!iso) return 'Never';
+  const t = Date.parse(iso);
+  if (isNaN(t)) return '—';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 2) return 'Just now';
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return plural(hours, 'hour') + ' ago';
+  const days = Math.round(hours / 24);
+  if (days < 30) return plural(days, 'day') + ' ago';
+  return fmtDate(iso);
+}
+
+function kpi(label, value, sub, cls = '') {
+  return `<div class="kpi-card ${cls}"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+}
+
 async function loadOverview() {
   try {
     const o = await adminFetch('/api/admin/overview');
-    const grid = document.getElementById('kpi-grid');
-    grid.innerHTML = `
-      <div class="kpi-card"><div class="label">Total signups</div><div class="value">${o.totalUsers}</div><div class="sub">${o.byPlan.free} free · ${o.byPlan.starter} starter · ${o.byPlan.pro} pro</div></div>
-      <div class="kpi-card mrr"><div class="label">Money received, last 30 days</div><div class="value">$${(o.revenueLast30Days || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div><div class="sub">$${(o.revenueAllTime || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} all time, after refunds</div></div>
-      <div class="kpi-card"><div class="label">Expected monthly revenue</div><div class="value">$${o.mrr.toLocaleString()}</div><div class="sub">${o.byPlan.pro} active Pro subscriber${o.byPlan.pro === 1 ? '' : 's'}</div></div>
-      <div class="kpi-card"><div class="label">Sites created</div><div class="value">${o.totalSites}</div><div class="sub">Across all customers</div></div>
-    `;
+    const pct = o.totalUsers ? Math.round((o.payingCustomers / o.totalUsers) * 100) : 0;
+    const proSub = [plural(o.payingPro, 'paying Pro subscription')];
+    if (o.proWithoutBilling) proSub.push(`${o.proWithoutBilling} Pro without billing not counted`);
+    document.getElementById('kpi-grid').innerHTML = [
+      kpi('Total signups', o.totalUsers, `+${o.signupsLast7Days} this week · ${o.byPlan.free} free · ${o.byPlan.starter} starter · ${o.byPlan.pro} pro`),
+      kpi('Paying customers', o.payingCustomers, `${pct}% of signups · ${o.starterBought} Starter · ${o.payingPro} Pro`),
+      kpi('Money received, last 30 days', money(o.revenueLast30Days), `${money(o.revenueAllTime)} all time, after refunds${o.refundsLast30Days ? ` · ${money(o.refundsLast30Days)} refunded` : ''}`, 'mrr'),
+      kpi('Expected monthly revenue', money(o.mrr), proSub.join(' · ')),
+      kpi('Sites created', o.totalSites, `${o.usersWithSite} of ${o.totalUsers} accounts built one · ${plural(o.customDomains, 'custom domain')}`),
+      kpi('Site visits', Number(o.totalViews || 0).toLocaleString(), 'All customer sites, bots excluded'),
+      kpi('Active this week', o.activeLast7Days, 'Signed in during the last 7 days'),
+      kpi('Unconfirmed emails', o.unconfirmedEmails, 'Accounts that haven\'t clicked the confirmation link'),
+    ].join('');
     renderChart(o.signupsLast30Days);
-    const pay = document.getElementById('payments-wrap');
-    if (pay) {
-      const rows = o.recentPayments || [];
-      pay.innerHTML = rows.length
-        ? `<table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Amount</th></tr></thead><tbody>${rows.map(r =>
-            `<tr><td>${escapeHtml(new Date(r.at).toLocaleString())}</td><td>${escapeHtml(r.email || '—')}</td><td>${escapeHtml(r.kind)}</td><td>${r.amount < 0 ? '−' : ''}$${Math.abs(r.amount).toFixed(2)} ${escapeHtml(r.currency)}</td></tr>`).join('')}</tbody></table>`
-        : '<div class="empty-state">No payments recorded yet. Payments appear here as PayPal reports them.</div>';
-    }
+    renderPayments(o.recentPayments || []);
+    renderPayPal(o.paypal || {});
+    renderAttention(o.attention || {});
+    renderTopSites(o.topSites || []);
   } catch (e) {
     if (e.message !== 'unauthorized') document.getElementById('kpi-grid').innerHTML = `<div class="empty-state">Couldn't load overview: ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function renderPayments(rows) {
+  const wrap = document.getElementById('payments-wrap');
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state small">No payments recorded yet. Payments appear here as PayPal reports them.</div>'; return; }
+  wrap.innerHTML = `<table><thead><tr><th>When</th><th>Customer</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead><tbody>${rows.map(r => {
+    const status = r.kind === 'refund' ? '<span class="tag refunded">Money returned</span>'
+      : r.refunded === 'full' ? '<span class="tag refunded">Refunded</span>'
+      : r.refunded === 'partial' ? '<span class="tag partial">Partly refunded</span>'
+      : '<span class="tag paid">Paid</span>';
+    return `<tr><td>${escapeHtml(new Date(r.at).toLocaleString())}</td><td>${escapeHtml(r.email || '—')}</td><td>${escapeHtml(KIND_LABEL[r.kind] || r.kind)}</td>`
+      + `<td class="${r.amount < 0 ? 'neg' : ''}">${r.amount < 0 ? '−' : ''}${money(Math.abs(r.amount))} ${escapeHtml(r.currency)}</td><td>${status}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function renderPayPal(p) {
+  const wrap = document.getElementById('paypal-wrap');
+  if (!p.enabled) { wrap.innerHTML = '<div class="muted">PayPal isn\'t switched on.</div>'; return; }
+  const last = p.lastWebhook, rej = p.lastRejected, chk = p.lastRefundCheck;
+  // A rejection newer than the last accepted notice usually means a setup problem
+  const rejectedRecently = rej && (!last || Date.parse(rej.at) > Date.parse(last.at));
+  wrap.innerHTML = `<ul class="status-list">
+    <li><span class="k">Mode</span><span class="v">${p.mode === 'live' ? '<span class="ok-text">Live</span>' : '<span class="bad-text">Sandbox (test money)</span>'}</span></li>
+    <li><span class="k">Webhook ID set</span><span class="v">${p.webhookConfigured ? '<span class="ok-text">Yes</span>' : '<span class="bad-text">No: set PAYPAL_WEBHOOK_ID</span>'}</span></li>
+    <li><span class="k">Last notice from PayPal</span><span class="v">${last ? `${escapeHtml(timeAgo(last.at))}<br><span class="muted">${escapeHtml(last.type || '')}</span>` : '<span class="muted">None since this was added</span>'}</span></li>
+    <li><span class="k">Last rejected notice</span><span class="v">${rej ? `<span class="${rejectedRecently ? 'bad-text' : ''}">${escapeHtml(timeAgo(rej.at))}</span><br><span class="muted">${escapeHtml(rej.reason || '')}</span>` : '<span class="muted">None</span>'}</span></li>
+    <li><span class="k">Last refund check</span><span class="v">${chk ? `${escapeHtml(timeAgo(chk.at))}<br><span class="muted">${plural(chk.checked || 0, 'payment')} checked, ${plural(chk.found || 0, 'new refund')}</span>` : '<span class="muted">Not run yet</span>'}</span></li>
+  </ul>
+  <div class="note">Refunds made in PayPal normally arrive within a minute. The app also asks PayPal about recent payments every 6 hours, or when you press the button.</div>`;
+}
+
+async function checkRefunds() {
+  const btn = document.getElementById('check-refunds-btn');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  try {
+    const r = await adminFetch('/api/admin/check-refunds', { method: 'POST' });
+    btn.textContent = r.skipped ? r.skipped : `${plural(r.checked, 'payment')} checked, ${plural(r.found, 'new refund')}`;
+    loadOverview(); loadCustomers(document.getElementById('search-box').value);
+  } catch (e) {
+    if (e.message !== 'unauthorized') btn.textContent = e.message;
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Check PayPal for refunds'; }, 4000);
+  }
+}
+
+function renderAttention(a) {
+  const items = [];
+  (a.proEnding || []).forEach(r => items.push(`<li><span class="k">${escapeHtml(r.email)}</span><span class="v"><span class="tag warn">Pro cancelled</span><br><span class="muted">ends ${escapeHtml(fmtDate(r.until))}</span></span></li>`));
+  (a.overLimit || []).forEach(r => items.push(`<li><span class="k">${escapeHtml(r.email)}</span><span class="v"><span class="tag warn">Too many sites</span><br><span class="muted">extra sites locked ${escapeHtml(fmtDate(r.deadline))}</span></span></li>`));
+  document.getElementById('attention-wrap').innerHTML = items.length
+    ? `<ul class="status-list">${items.join('')}</ul>`
+    : '<div class="muted">Nothing right now. Cancelled Pro plans and accounts over their site limit show up here.</div>';
+}
+
+function renderTopSites(rows) {
+  const wrap = document.getElementById('top-sites-wrap');
+  if (!rows.length) { wrap.innerHTML = '<div class="empty-state small">No visits recorded yet.</div>'; return; }
+  wrap.innerHTML = `<table><thead><tr><th>Site</th><th>Owner</th><th>Visits</th></tr></thead><tbody>${rows.map(r =>
+    `<tr><td class="site-links"><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.bizName)} ↗</a>${r.customDomain ? ` <span class="muted">(${escapeHtml(r.customDomain)})</span>` : ''}</td><td>${escapeHtml(r.email || '—')}</td><td>${Number(r.views).toLocaleString()}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function renderChart(rows) {
@@ -362,7 +483,7 @@ function renderChart(rows) {
 
 function siteLinksHtml(sites) {
   if (!sites || !sites.length) return '<span class="muted">No sites yet</span>';
-  return sites.map(s => `<div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.bizName)} ↗</a>${s.customDomain ? ` <span class="muted">(${escapeHtml(s.customDomain)})</span>` : ''}</div>`).join('');
+  return sites.map(s => `<div><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.bizName)} ↗</a>${s.customDomain ? ` <span class="muted">(${escapeHtml(s.customDomain)})</span>` : ''}${s.views ? ` <span class="muted">· ${plural(s.views, 'visit')}</span>` : ''}</div>`).join('');
 }
 
 async function loadCustomers(search) {
@@ -376,14 +497,16 @@ async function loadCustomers(search) {
     }
     wrap.innerHTML = `
       <table>
-        <thead><tr><th>Email</th><th>Plan</th><th>Signed up</th><th>Billing on file</th><th>Saved sites</th></tr></thead>
+        <thead><tr><th>Email</th><th>Plan</th><th>Billing</th><th>Paid</th><th>Signed up</th><th>Last active</th><th>Saved sites</th></tr></thead>
         <tbody>
           ${customers.map(c => `
             <tr>
-              <td><div class="email">${escapeHtml(c.email)}</div>${c.name ? `<div class="muted">${escapeHtml(c.name)}</div>` : ''}</td>
+              <td><div class="email">${escapeHtml(c.email)}</div>${c.name ? `<div class="muted">${escapeHtml(c.name)}</div>` : ''}${c.emailConfirmed === false ? '<span class="tag warn">Email not confirmed</span>' : ''}</td>
               <td><span class="badge ${escapeHtml(c.plan)}">${escapeHtml(c.plan)}</span></td>
+              <td class="muted">${escapeHtml(c.billing || '—')}</td>
+              <td class="muted">${c.totalPaid ? money(c.totalPaid) : '—'}</td>
               <td class="muted">${fmtDate(c.createdAt)}</td>
-              <td class="muted">${c.hasBilling ? 'Yes' : 'No'}</td>
+              <td class="muted">${escapeHtml(c.lastSeenAt ? timeAgo(c.lastSeenAt) : '—')}</td>
               <td class="site-links">${siteLinksHtml(c.sites)}</td>
             </tr>
           `).join('')}
@@ -399,6 +522,7 @@ document.getElementById('login-btn').addEventListener('click', login);
 document.getElementById('pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 document.getElementById('logout-btn').addEventListener('click', () => showLogin());
 document.getElementById('forgot-btn').addEventListener('click', forgotPassword);
+document.getElementById('check-refunds-btn').addEventListener('click', checkRefunds);
 document.getElementById('change-pw-btn').addEventListener('click', openPwDialog);
 document.getElementById('pw-cancel').addEventListener('click', () => document.getElementById('pw-dialog').close());
 document.getElementById('pw-save').addEventListener('click', savePassword);
