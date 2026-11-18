@@ -36,7 +36,9 @@ Node 20 to 24 is supported.
   - **Starter, $29 one time:** badge removed (plus a subdomain once enabled).
   - **Pro, $12 a month:** unlimited sites and your own domain.
 - **Custom domains** are set up through Cloudflare for SaaS when its variables are set, otherwise through the Railway API.
-- **Admin dashboard** is at `/admin`, signed in with `ADMIN_PASSWORD`. It shows signups, money actually received (from the payments ledger) and customers.
+- **Admin dashboard** is at `/admin`. It shows signups, money actually received (from the payments ledger) and customers.
+  - The first password is `ADMIN_PASSWORD`. "Change password" in the dashboard, or "Forgot password?" on the login screen, saves a new one in the database, which then replaces `ADMIN_PASSWORD`.
+  - Reset links go only to `ADMIN_EMAIL` (or `SIGNUP_NOTIFY_EMAIL` if that isn't set) and need email to be set up.
 
 | File | What it does |
 |---|---|
