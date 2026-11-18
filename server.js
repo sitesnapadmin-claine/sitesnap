@@ -343,7 +343,11 @@ const RESET_FROM_EMAIL = process.env.RESET_FROM_EMAIL || '';
 const EMAIL_READY = Boolean(RESEND_API_KEY && RESET_FROM_EMAIL);
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // one hour
 
-async function sendEmail({ to, subject, html, replyTo }) {
+// Customer-facing address: the legal pages, error messages, the site footer,
+// and where replies to SiteSnap's own emails go. Forwarded to the owner's inbox.
+const SUPPORT_EMAIL = (process.env.SUPPORT_EMAIL || 'support@site-snap.app').trim();
+
+async function sendEmail({ to, subject, html, replyTo = SUPPORT_EMAIL }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -1213,7 +1217,7 @@ app.post('/api/auth/forgot-password', forgotPasswordLimiter, async (req, res) =>
   if (!EMAIL_READY) {
     // Not an enumeration leak: this answer doesn't depend on the address.
     return res.status(503).json({
-      error: 'Password reset isn\'t switched on yet. Please contact support to regain access.',
+      error: `Password reset isn't switched on yet. Please email ${SUPPORT_EMAIL} to regain access.`,
       code: 'RESET_UNAVAILABLE',
     });
   }
@@ -1280,6 +1284,7 @@ app.get('/api/config', (req, res) => {
     passwordResetEnabled: EMAIL_READY,
     contactFormEnabled: EMAIL_READY,
     plausibleDomain: PLAUSIBLE_DOMAIN || null,
+    supportEmail: SUPPORT_EMAIL,
   });
 });
 
@@ -1586,7 +1591,7 @@ app.post('/api/sites/:uuid/domain', requireAuth, requirePlan('pro'), async (req,
     // is already on Pro, so show a friendly message and keep the detail for us.
     if (/custom domain limit|upgrade to add more|custom hostname.*(limit|quota)|quota.*custom hostname/i.test(e.message || '')) {
       if (Sentry) Sentry.captureException(e);
-      return res.status(503).json({ error: 'We cannot connect new domains at this moment. Your site and your plan are safe. Please try again soon, or email ' + LEGAL_CONTACT_EMAIL + ' and we will get it connected for you.' });
+      return res.status(503).json({ error: 'We cannot connect new domains at this moment. Your site and your plan are safe. Please try again soon, or email ' + SUPPORT_EMAIL + ' and we will get it connected for you.' });
     }
     res.status(502).json({ error: e.message || 'Could not register the domain. Please try again.' });
   }
@@ -2354,7 +2359,7 @@ app.get('/billing/success', async (req, res) => {
   // Not confirmed yet: PayPal can take a minute to tell us. Never claim success early.
   const label = wanted ? PLANS[wanted].name : 'your plan';
   res.send(simplePageHtml('Confirming your payment…', '⏳',
-    `Thanks! We're waiting for PayPal to confirm your ${label} payment. This usually takes under a minute. Your account updates on its own, so you can head back now. If it hasn't changed within an hour, email ${LEGAL_CONTACT_EMAIL}.`,
+    `Thanks! We're waiting for PayPal to confirm your ${label} payment. This usually takes under a minute. Your account updates on its own, so you can head back now. If it hasn't changed within an hour, email ${SUPPORT_EMAIL}.`,
     'Back to my account', '<meta http-equiv="refresh" content="20">'));
 });
 
@@ -2364,7 +2369,6 @@ app.get('/billing/cancel', (req, res) => {
 });
 
 // ── LEGAL PAGES ─────────────────────────────────────────────────────────────────
-const LEGAL_CONTACT_EMAIL = 'sitesnap.admin@gmail.com';
 const LEGAL_UPDATED = 'November 17, 2026';
 
 function legalPageHtml(title, bodyHtml) {
@@ -2430,7 +2434,7 @@ app.get('/terms', (req, res) => {
 <p>We may update these Terms from time to time. Continued use of the Service after changes take effect means you accept the updated Terms.</p>
 
 <h2>11. Contact</h2>
-<p>Questions about these Terms? Email <a href="mailto:${LEGAL_CONTACT_EMAIL}">${LEGAL_CONTACT_EMAIL}</a>.</p>
+<p>Questions about these Terms? Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>
 
 <div class="note">This is a general template, not a substitute for legal advice tailored to your business. Consider having it reviewed by a lawyer before relying on it, especially once you have paying customers at scale.</div>
 `));
@@ -2486,7 +2490,7 @@ ${PLAUSIBLE_DOMAIN ? '<li><strong>Analytics:</strong> we use Plausible, a privac
 <p>We may update this Privacy Policy from time to time. Continued use of the Service after changes take effect means you accept the updated policy.</p>
 
 <h2>9. Contact</h2>
-<p>Questions about this policy or your data? Email <a href="mailto:${LEGAL_CONTACT_EMAIL}">${LEGAL_CONTACT_EMAIL}</a>.</p>
+<p>Questions about this policy or your data? Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>
 
 <div class="note">This is a general template, not a substitute for legal advice tailored to your business or jurisdiction (e.g. GDPR/CCPA obligations). Consider having it reviewed by a lawyer before relying on it, especially once you have paying customers at scale.</div>
 `));
