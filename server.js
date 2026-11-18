@@ -33,6 +33,7 @@ const paypal = require('./paypal')({
   onProEnded: (userId) => planLimits.onProEnded(userId),
   recordPayment: (p) => recordPayment(p),
   notifyAdmin: (subject, text) => notifyAdmin(subject, text),
+  onWebhookSeen: (info) => notePayPalWebhook(info),
 });
 
 // ── CLOUDINARY (optional — falls back to local disk if not configured) ─────────
@@ -390,15 +391,52 @@ function notifyAdmin(subject, text) {
 
 // The ledger of money actually received (and refunded). PayPal can send the
 // same event more than once, so the external id makes each one count once.
-async function recordPayment({ userId, provider, kind, amount, currency, externalId }) {
+// Returns true when a new row was added. relatedId links a refund to the
+// payment it refunds, so the dashboard can mark that payment as refunded.
+async function recordPayment({ userId, provider, kind, amount, currency, externalId, relatedId }) {
   const cents = Math.round(Number(amount) * 100);
-  if (!externalId || !Number.isFinite(cents)) return;
+  if (!externalId || !Number.isFinite(cents)) return false;
+  externalId = String(externalId);
   try {
-    await dbRun(insertIgnore('payments', 'user_id, provider, kind, amount_cents, currency, external_id', '?, ?, ?, ?, ?, ?'),
-      userId || null, provider, kind, cents, String(currency || 'USD'), String(externalId));
+    // A full Pro refund found by the PayPal check has no refund ID of its own
+    // ("sale-refund-…"). Never count it twice alongside the webhook's real one.
+    if (kind === 'refund' && relatedId) {
+      const synthetic = `sale-refund-${relatedId}`;
+      if (externalId === synthetic) {
+        if (await dbGet("SELECT id FROM payments WHERE kind = 'refund' AND related_id = ?", String(relatedId))) return false;
+      } else {
+        await dbRun('DELETE FROM payments WHERE external_id = ?', synthetic);
+      }
+    }
+    const r = await dbRun(insertIgnore('payments', 'user_id, provider, kind, amount_cents, currency, external_id, related_id', '?, ?, ?, ?, ?, ?, ?'),
+      userId || null, provider, kind, cents, String(currency || 'USD'), externalId, relatedId ? String(relatedId) : null);
+    return Number(r.changes) > 0;
   } catch (e) {
     console.error('recordPayment error:', e.message);
+    return false;
   }
+}
+
+// Kept for the admin dashboard, so the owner can see whether PayPal's
+// notices are arriving and being accepted.
+async function notePayPalWebhook({ ok, type, reason }) {
+  const at = new Date().toISOString();
+  if (ok) await setAdminSetting('paypal_webhook_last_ok', JSON.stringify({ at, type }));
+  else await setAdminSetting('paypal_webhook_last_rejected', JSON.stringify({ at, reason }));
+}
+
+// Asks PayPal about Starter and Pro payments from the last 180 days that
+// haven't been fully refunded yet, in case a refund notice was missed.
+async function syncPayPalRefunds() {
+  if (!paypal.enabled) return { checked: 0, found: 0, skipped: 'PayPal is not switched on' };
+  const since = USE_PG ? "NOW() - INTERVAL '180 days'" : "datetime('now','-180 days')";
+  const rows = await dbAll(`SELECT p.kind, p.external_id, p.user_id FROM payments p
+    WHERE p.provider = 'paypal' AND p.kind IN ('starter', 'pro') AND p.created_at >= ${since}
+      AND COALESCE((SELECT -SUM(r.amount_cents) FROM payments r WHERE r.kind = 'refund' AND r.related_id = p.external_id), 0) < p.amount_cents
+    ORDER BY p.created_at DESC LIMIT 200`);
+  const result = await paypal.checkRefunds(rows);
+  await setAdminSetting('paypal_refund_check', JSON.stringify({ at: new Date().toISOString(), ...result }));
+  return result;
 }
 
 // Only the hash is stored, so a database leak can't be used to seize accounts.
@@ -429,6 +467,9 @@ async function sweepExpiredPro() {
 if (require.main === module) {
   setTimeout(sweepExpiredPro, 60 * 1000).unref();
   setInterval(sweepExpiredPro, 60 * 60 * 1000).unref();
+  const refundCheck = () => syncPayPalRefunds().catch(e => console.error('PayPal refund check error:', e.message));
+  setTimeout(refundCheck, 2 * 60 * 1000).unref();
+  setInterval(refundCheck, 6 * 60 * 60 * 1000).unref();
 }
 async function blockIfRestricted(req, res, next) {
   try {
@@ -574,6 +615,8 @@ async function initDb() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )`,
       'CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT)',
+      'ALTER TABLE payments ADD COLUMN IF NOT EXISTS related_id TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TEXT',
     ]) { try { await pgPool.query(sql); } catch (e) { console.warn('migration skipped:', e.message); } }
     console.log('✓ Using Postgres — site data survives redeploys');
     return;
@@ -630,6 +673,8 @@ async function initDb() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
     'CREATE TABLE IF NOT EXISTS admin_settings (key TEXT PRIMARY KEY, value TEXT)',
+    'ALTER TABLE payments ADD COLUMN related_id TEXT',
+    'ALTER TABLE users ADD COLUMN last_seen_at TEXT',
   ].forEach(sql => { try { sqliteDb.exec(sql); } catch (_) {} });
   console.warn('⚠️  Using SQLite — on an ephemeral host, saved sites are LOST on every redeploy.');
   console.warn('   Attach a Postgres service so DATABASE_URL is set.');
@@ -802,7 +847,11 @@ async function requireAuth(req, res, next) {
   try {
     // On an ephemeral host the user row can vanish — restore it from the JWT so
     // plan lookups keep working. (Harmless once Postgres makes data durable.)
-    const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id, token_version FROM users WHERE id = ?', req.user.id);
+    const exists = await dbGet('SELECT id, plan, paypal_access_until, paypal_subscription_id, token_version, last_seen_at FROM users WHERE id = ?', req.user.id);
+    // "Last active" for the admin dashboard, written at most once an hour
+    if (exists && (!exists.last_seen_at || Date.parse(exists.last_seen_at) < Date.now() - 60 * 60 * 1000)) {
+      dbRun('UPDATE users SET last_seen_at = ? WHERE id = ?', new Date().toISOString(), req.user.id).catch(() => {});
+    }
     // A password change bumps token_version, which signs out every other device
     if (exists && Number(req.user.tv || 0) !== Number(exists.token_version || 0)) {
       return res.status(401).json({ error: 'Your session has ended. Please sign in again.' });
@@ -2094,39 +2143,95 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
     byPlan.forEach(r => { counts[r.plan || 'free'] = Number(r.count); });
     const totalUsers = counts.free + counts.starter + counts.pro;
 
-    const totalSitesRow = await dbGet('SELECT COUNT(*) as count FROM sites');
-    const totalSites = Number(totalSitesRow?.count || 0);
+    const since = days => USE_PG ? `NOW() - INTERVAL '${days} days'` : `datetime('now','-${days} days')`;
+    const num = async (sql, ...params) => Number((await dbGet(sql, ...params))?.c || 0);
+    const nowIso = new Date().toISOString();
 
-    // Estimated, current-state revenue — Starter is one-time so this counts
-    // everyone currently marked starter; Pro is recurring so this is live MRR.
-    // There's no separate purchase ledger, so past upgrades that later
-    // downgraded/cancelled won't show here — it's a snapshot, not history.
-    const mrr = counts.pro * ((PLANS.pro?.price || 1200) / 100);
-    const starterRevenue = counts.starter * ((PLANS.starter?.price || 2900) / 100);
+    const totalSites = await num('SELECT COUNT(*) AS c FROM sites');
+    const totalViews = await num('SELECT COALESCE(SUM(views), 0) AS c FROM sites');
+    const customDomains = await num("SELECT COUNT(*) AS c FROM sites WHERE custom_domain IS NOT NULL AND custom_domain <> ''");
+    const signups7 = await num(`SELECT COUNT(*) AS c FROM users WHERE created_at >= ${since(7)}`);
+    const active7 = await num('SELECT COUNT(*) AS c FROM users WHERE last_seen_at >= ?', new Date(Date.now() - 7 * 864e5).toISOString());
+    const unconfirmed = await num('SELECT COUNT(*) AS c FROM users WHERE email_verified = 0');
+    const usersWithSite = await num('SELECT COUNT(DISTINCT user_id) AS c FROM sites WHERE user_id IS NOT NULL');
+
+    // Only Pro accounts with a live subscription bring in money each month.
+    // Pro accounts without one were given Pro by hand, are tests, or were cancelled
+    // and keep Pro until their paid month ends.
+    const payingPro = await num("SELECT COUNT(*) AS c FROM users WHERE plan = 'pro' AND (paypal_subscription_id IS NOT NULL OR stripe_subscription_id IS NOT NULL)");
+    const proEnding = await dbAll("SELECT email, paypal_access_until FROM users WHERE plan = 'pro' AND paypal_subscription_id IS NULL AND paypal_access_until IS NOT NULL AND paypal_access_until > ? ORDER BY paypal_access_until", nowIso);
+    const proWithoutBilling = Math.max(0, counts.pro - payingPro - proEnding.length);
+    const mrr = payingPro * ((PLANS.pro?.price || 1200) / 100);
+    const starterBought = await num("SELECT COUNT(*) AS c FROM users WHERE paypal_order_id IS NOT NULL");
+    const payingCustomers = await num("SELECT COUNT(*) AS c FROM users WHERE paypal_order_id IS NOT NULL OR paypal_subscription_id IS NOT NULL OR stripe_subscription_id IS NOT NULL");
 
     // Money actually received, from the payments ledger (refunds are negative)
-    const sinceSql = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
-    const allTime = await dbGet('SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments');
-    const last30 = await dbGet(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments WHERE created_at >= ${sinceSql}`);
+    const allTime = await num('SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments');
+    const last30 = await num(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments WHERE created_at >= ${since(30)}`);
+    const refunds30 = await num(`SELECT COALESCE(-SUM(amount_cents), 0) AS c FROM payments WHERE kind = 'refund' AND created_at >= ${since(30)}`);
     const recentPayments = await dbAll(
-      'SELECT p.kind, p.amount_cents, p.currency, p.created_at, u.email FROM payments p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.created_at DESC LIMIT 20'
+      `SELECT p.kind, p.amount_cents, p.currency, p.created_at, p.external_id, p.related_id, u.email,
+         (SELECT COALESCE(-SUM(r.amount_cents), 0) FROM payments r WHERE r.kind = 'refund' AND r.related_id = p.external_id) AS refunded_cents
+       FROM payments p LEFT JOIN users u ON u.id = p.user_id ORDER BY p.created_at DESC LIMIT 25`
     );
 
-    const sinceClause = USE_PG ? "NOW() - INTERVAL '30 days'" : "datetime('now','-30 days')";
     const signupRows = await dbAll(
-      `SELECT DATE(created_at) as day, COUNT(*) as count FROM users WHERE created_at >= ${sinceClause} GROUP BY DATE(created_at) ORDER BY day`
+      `SELECT DATE(created_at) as day, COUNT(*) as count FROM users WHERE created_at >= ${since(30)} GROUP BY DATE(created_at) ORDER BY day`
     );
+
+    const topSiteRows = await dbAll('SELECT s.uuid, s.data, s.views, s.custom_domain, u.email FROM sites s LEFT JOIN users u ON u.id = s.user_id WHERE s.views > 0 ORDER BY s.views DESC LIMIT 5');
+    const overLimit = await dbAll('SELECT email, over_limit_deadline FROM users WHERE over_limit_deadline IS NOT NULL ORDER BY over_limit_deadline');
+
+    const readJson = async key => { try { return JSON.parse(await getAdminSetting(key) || 'null'); } catch (_) { return null; } };
 
     res.json({
       totalUsers,
       byPlan: counts,
       totalSites,
+      totalViews,
+      customDomains,
+      signupsLast7Days: signups7,
+      activeLast7Days: active7,
+      unconfirmedEmails: unconfirmed,
+      usersWithSite,
+      payingCustomers,
+      starterBought,
+      payingPro,
+      proWithoutBilling,
       mrr,
-      starterRevenue,
-      revenueAllTime: Number(allTime?.c || 0) / 100,
-      revenueLast30Days: Number(last30?.c || 0) / 100,
-      recentPayments: recentPayments.map(r => ({ kind: r.kind, amount: Number(r.amount_cents) / 100, currency: r.currency, at: r.created_at, email: r.email || null })),
+      revenueAllTime: allTime / 100,
+      revenueLast30Days: last30 / 100,
+      refundsLast30Days: refunds30 / 100,
+      recentPayments: recentPayments.map(r => {
+        const amountCents = Number(r.amount_cents);
+        const refundedCents = Number(r.refunded_cents || 0);
+        return {
+          kind: r.kind,
+          amount: amountCents / 100,
+          currency: r.currency,
+          at: r.created_at,
+          email: r.email || null,
+          refunded: r.kind === 'refund' ? null : (refundedCents >= amountCents ? 'full' : refundedCents > 0 ? 'partial' : null),
+        };
+      }),
       signupsLast30Days: signupRows.map(r => ({ day: r.day, count: Number(r.count) })),
+      topSites: topSiteRows.map(r => {
+        let bizName = '(untitled)';
+        try { bizName = JSON.parse(r.data).bizName || bizName; } catch (_) {}
+        return { bizName, views: Number(r.views), email: r.email || null, url: `${BASE_URL}/preview/${r.uuid}`, customDomain: r.custom_domain || null };
+      }),
+      attention: {
+        proEnding: proEnding.map(r => ({ email: r.email, until: r.paypal_access_until })),
+        overLimit: overLimit.map(r => ({ email: r.email, deadline: r.over_limit_deadline })),
+      },
+      paypal: {
+        enabled: paypal.enabled,
+        mode: paypal.enabled ? paypal.mode : null,
+        webhookConfigured: paypal.webhookConfigured,
+        lastWebhook: await readJson('paypal_webhook_last_ok'),
+        lastRejected: await readJson('paypal_webhook_last_rejected'),
+        lastRefundCheck: await readJson('paypal_refund_check'),
+      },
     });
   } catch (e) {
     console.error('admin/overview error:', e.message);
@@ -2134,14 +2239,25 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
   }
 });
 
+// "Check PayPal for refunds" button: the same check that runs every 6 hours
+app.post('/api/admin/check-refunds', requireAdmin, adminLoginLimiter, async (req, res) => {
+  try {
+    res.json(await syncPayPalRefunds());
+  } catch (e) {
+    console.error('admin check-refunds error:', e.message);
+    res.status(500).json({ error: 'Could not reach PayPal. Please try again shortly.' });
+  }
+});
+
 app.get('/api/admin/customers', requireAdmin, async (req, res) => {
   try {
     const search = (req.query.search || '').trim().toLowerCase();
+    const cols = 'id, email, name, plan, stripe_customer_id, stripe_subscription_id, paypal_subscription_id, paypal_order_id, paypal_access_until, email_verified, last_seen_at, created_at';
     const users = search
-      ? await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users WHERE LOWER(email) LIKE ? ORDER BY created_at DESC', `%${search}%`)
-      : await dbAll('SELECT id, email, name, plan, stripe_customer_id, created_at FROM users ORDER BY created_at DESC');
+      ? await dbAll(`SELECT ${cols} FROM users WHERE LOWER(email) LIKE ? ORDER BY created_at DESC`, `%${search}%`)
+      : await dbAll(`SELECT ${cols} FROM users ORDER BY created_at DESC`);
 
-    const sites = await dbAll('SELECT uuid, user_id, subdomain, custom_domain, created_at, data FROM sites ORDER BY created_at DESC');
+    const sites = await dbAll('SELECT uuid, user_id, subdomain, custom_domain, created_at, views, data FROM sites ORDER BY created_at DESC');
     const sitesByUser = {};
     for (const s of sites) {
       let bizName = '(untitled)';
@@ -2151,16 +2267,33 @@ app.get('/api/admin/customers', requireAdmin, async (req, res) => {
         bizName,
         url: `${BASE_URL}/preview/${s.uuid}`,
         customDomain: s.custom_domain || null,
+        views: Number(s.views || 0),
         createdAt: s.created_at,
       });
     }
+    const paidRows = await dbAll('SELECT user_id, COALESCE(SUM(amount_cents), 0) AS c FROM payments WHERE user_id IS NOT NULL GROUP BY user_id');
+    const paidByUser = Object.fromEntries(paidRows.map(r => [r.user_id, Number(r.c) / 100]));
+
+    // How the plan is paid for, in words the owner can act on
+    const billingOf = u => {
+      if (u.paypal_subscription_id) return 'PayPal monthly';
+      if (u.plan === 'pro' && u.paypal_access_until && Date.parse(u.paypal_access_until) > Date.now()) return 'Cancelled, Pro until ' + new Date(u.paypal_access_until).toISOString().slice(0, 10);
+      if (u.stripe_subscription_id) return 'Stripe monthly';
+      if (u.paypal_order_id) return 'Starter, paid once';
+      if (u.plan !== 'free') return 'None (given by hand or test)';
+      return null;
+    };
 
     res.json(users.map(u => ({
       id: u.id,
       email: u.email,
       name: u.name || null,
       plan: u.plan || 'free',
-      hasBilling: Boolean(u.stripe_customer_id),
+      billing: billingOf(u),
+      hasBilling: Boolean(u.stripe_customer_id || u.paypal_subscription_id || u.paypal_order_id),
+      totalPaid: paidByUser[u.id] || 0,
+      emailConfirmed: u.email_verified === null || u.email_verified === undefined ? null : Boolean(Number(u.email_verified)),
+      lastSeenAt: u.last_seen_at || null,
       createdAt: u.created_at,
       sites: sitesByUser[u.id] || [],
     })));

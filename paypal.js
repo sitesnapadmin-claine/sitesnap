@@ -5,7 +5,7 @@
 
 const crypto = require('crypto');
 
-module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment = async () => {}, notifyAdmin = async () => {} }) {
+module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment = async () => {}, notifyAdmin = async () => {}, onWebhookSeen = async () => {} }) {
   const MODE = (process.env.PAYPAL_MODE || 'sandbox').toLowerCase() === 'live' ? 'live' : 'sandbox';
   const API = MODE === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
   const CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
@@ -284,11 +284,8 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment
 
   // A full refund of the $29 Starter purchase takes Starter away again. A Pro customer keeps Pro;
   // only the Starter order is forgotten, so Pro falls back to Free (not Starter) when it ends.
-  async function handleStarterRefund(refund) {
-    const up = (refund.links || []).find((l) => l.rel === 'up');
-    const captureId = up && String(up.href || '').split('/').pop();
-    if (!captureId) return;
-    const cap = await api('GET', `/v2/payments/captures/${encodeURIComponent(captureId)}`);
+  // Takes the capture as PayPal returns it from GET /v2/payments/captures/:id.
+  async function applyStarterRefund(cap) {
     const [uid, key] = String(cap.custom_id || '').split(':');
     const userId = parseInt(uid, 10);
     if (!userId || key !== 'starter') return;
@@ -300,6 +297,7 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment
     if (!row) return;
     const orderId = cap.supplementary_data && cap.supplementary_data.related_ids && cap.supplementary_data.related_ids.order_id;
     if (orderId && row.paypal_order_id && row.paypal_order_id !== orderId) return; // a different, newer purchase
+    if (!row.paypal_order_id && row.plan !== 'starter') return; // already handled
     await dbRun('UPDATE users SET paypal_order_id = NULL WHERE id = ?', userId);
     if (row.plan === 'starter') {
       // The date written to paypal_access_until stops an old login token from restoring Starter
@@ -310,15 +308,67 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment
     }
   }
 
+  function userIdFromCustom(customId) {
+    return parseInt(String(customId || '').split(':')[0], 10) || null;
+  }
+
+  // ── Checking refunds directly with PayPal ───────────────────────────────────
+  // Refunds made in the PayPal website only reach us through the webhook. If that
+  // notice is missed (webhook not subscribed, wrong webhook ID, an outage), this
+  // asks PayPal about each recent payment instead. Safe to run repeatedly: refunds
+  // are stored under PayPal's own IDs, so nothing is counted twice.
+  // payments: [{ kind: 'starter' | 'pro', external_id, user_id }]
+  async function checkRefunds(payments) {
+    let checked = 0;
+    let found = 0;
+    for (const p of payments) {
+      try {
+        if (p.kind === 'starter') {
+          const cap = await api('GET', `/v2/payments/captures/${encodeURIComponent(p.external_id)}`);
+          checked++;
+          if (!/REFUNDED/.test(cap.status || '')) continue;
+          const orderId = cap.supplementary_data?.related_ids?.order_id;
+          if (orderId) {
+            const order = await api('GET', `/v2/checkout/orders/${encodeURIComponent(orderId)}`);
+            for (const unit of order.purchase_units || []) {
+              for (const ref of unit.payments?.refunds || []) {
+                if (ref.status && ref.status !== 'COMPLETED') continue;
+                const added = await recordPayment({ userId: p.user_id || userIdFromCustom(cap.custom_id), provider: 'paypal', kind: 'refund',
+                  amount: -Number(ref.amount.value), currency: ref.amount.currency_code, externalId: ref.id, relatedId: p.external_id });
+                if (added) found++;
+              }
+            }
+          }
+          await applyStarterRefund(cap);
+        } else if (p.kind === 'pro') {
+          const sale = await api('GET', `/v1/payments/sale/${encodeURIComponent(p.external_id)}`);
+          checked++;
+          if (sale.state !== 'refunded') continue; // partial refunds of Pro are left to the webhook
+          const added = await recordPayment({ userId: p.user_id, provider: 'paypal', kind: 'refund',
+            amount: -Number(sale.amount.total), currency: sale.amount.currency, externalId: `sale-refund-${p.external_id}`, relatedId: p.external_id });
+          if (added) found++;
+        }
+      } catch (e) {
+        console.error(`PayPal refund check failed for ${p.kind} payment ${p.external_id}:`, e.message);
+      }
+    }
+    return { checked, found };
+  }
+
   async function handleWebhook(req, res) {
     let event;
     try {
-      if (!(await verifyWebhook(req.headers, req.body))) return res.status(400).send('Invalid signature');
+      if (!(await verifyWebhook(req.headers, req.body))) {
+        await onWebhookSeen({ ok: false, reason: WEBHOOK_ID ? 'signature check failed (is PAYPAL_WEBHOOK_ID the live webhook?)' : 'PAYPAL_WEBHOOK_ID is not set' }).catch(() => {});
+        return res.status(400).send('Invalid signature');
+      }
       event = JSON.parse(req.body.toString('utf8'));
     } catch (e) {
       console.error('PayPal webhook verification error:', e.message);
+      await onWebhookSeen({ ok: false, reason: `could not verify: ${e.message}` }).catch(() => {});
       return res.status(400).send('Bad webhook');
     }
+    await onWebhookSeen({ ok: true, type: event.event_type }).catch(() => {});
 
     try {
       const r = event.resource || {};
@@ -375,14 +425,25 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment
           }
           break;
         }
-        case 'PAYMENT.CAPTURE.REFUNDED':
-          if (r.amount) await recordPayment({ provider: 'paypal', kind: 'refund', amount: -Number(r.amount.value), currency: r.amount.currency_code, externalId: r.id });
-          await handleStarterRefund(r);
+        case 'PAYMENT.CAPTURE.REFUNDED': {
+          const up = (r.links || []).find((l) => l.rel === 'up');
+          const captureId = up && String(up.href || '').split('/').pop();
+          const cap = captureId ? await api('GET', `/v2/payments/captures/${encodeURIComponent(captureId)}`) : null;
+          if (r.amount) {
+            await recordPayment({ userId: cap ? userIdFromCustom(cap.custom_id) : null, provider: 'paypal', kind: 'refund',
+              amount: -Number(r.amount.value), currency: r.amount.currency_code, externalId: r.id, relatedId: captureId || null });
+          }
+          if (cap) await applyStarterRefund(cap);
           break;
+        }
         case 'PAYMENT.SALE.REFUNDED': {
           // A refunded monthly payment may be goodwill, so Pro is not cut off automatically
           const amt = r.amount && (r.amount.total || r.amount.value);
-          if (amt) await recordPayment({ provider: 'paypal', kind: 'refund', amount: -Number(amt), currency: r.amount.currency || r.amount.currency_code, externalId: r.id });
+          if (amt) {
+            const sale = r.sale_id ? await dbGet("SELECT user_id FROM payments WHERE external_id = ?", r.sale_id).catch(() => null) : null;
+            await recordPayment({ userId: sale ? sale.user_id : null, provider: 'paypal', kind: 'refund', amount: -Number(amt),
+              currency: r.amount.currency || r.amount.currency_code, externalId: r.id, relatedId: r.sale_id || null });
+          }
           await notifyAdmin('SiteSnap: a Pro payment was refunded', `PayPal refunded a monthly Pro payment (${r.id}). Pro was left on; check whether to cancel it.`);
           break;
         }
@@ -438,5 +499,5 @@ module.exports = function createPayPal({ dbGet, dbRun, onProEnded, recordPayment
       : 'https://www.sandbox.paypal.com/myaccount/autopay/';
   }
 
-  return { enabled, mode: MODE, startCheckout, confirmReturn, handleWebhook, cancelSubscription, cancelForUser, manageUrl, expireIfDue };
+  return { enabled, mode: MODE, webhookConfigured: Boolean(WEBHOOK_ID), startCheckout, confirmReturn, handleWebhook, cancelSubscription, cancelForUser, manageUrl, expireIfDue, checkRefunds };
 };
